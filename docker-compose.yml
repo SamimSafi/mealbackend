@@ -1,0 +1,18 @@
+version: '3.9'
+
+services:
+  api:
+    build: .
+    container_name: kobo-dashboard-api
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=sqlite:///./data/kobo_dashboard.db
+      - SECRET_KEY=${SECRET_KEY:-your-secret-key-change-in-production}
+      - KOBO_API_TOKEN=${KOBO_API_TOKEN}
+      - KOBO_USERNAME=${KOBO_USERNAME}
+      - CORS_ORIGINS_STR=${CORS_ORIGINS_STR:-http://localhost:5173,http://localhost:3000}
+    volumes:
+      - ./data:/app/data
+      - .:/app
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
