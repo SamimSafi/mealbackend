@@ -1,0 +1,3964 @@
+[
+  {
+    "method": "GET",
+    "endpoint": "/api/auth/me",
+    "description": "Get current user",
+    "status_code": 200,
+    "success": true,
+    "response": {
+      "username": "admin",
+      "email": "admin@example.com",
+      "full_name": "Administrator",
+      "role": "admin",
+      "id": 1,
+      "is_active": true,
+      "created_at": "2025-12-21T05:38:40.704736",
+      "updated_at": "2025-12-21T05:38:40.704736"
+    }
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/forms",
+    "description": "List all forms",
+    "status_code": 200,
+    "success": true,
+    "response": [
+      {
+        "title": "MEAL System Master Form (Beneficiary + PDM + Complaints)",
+        "description": "",
+        "category": null,
+        "id": 1,
+        "kobo_form_id": "arsYddWQmG4Hn2D8XMEdJw",
+        "is_active": true,
+        "last_synced_at": null,
+        "created_at": "2025-12-23T06:00:17.969992",
+        "updated_at": "2025-12-23T06:00:17.969992",
+        "submission_count": 3
+      },
+      {
+        "title": "aHzBuh58NanN9UfEVhGkCt",
+        "description": "",
+        "category": null,
+        "id": 2,
+        "kobo_form_id": "aHzBuh58NanN9UfEVhGkCt",
+        "is_active": true,
+        "last_synced_at": null,
+        "created_at": "2025-12-23T06:00:20.209721",
+        "updated_at": "2025-12-23T06:00:20.209721",
+        "submission_count": 0
+      }
+    ]
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/forms/1",
+    "description": "Get form 1 details",
+    "status_code": 200,
+    "success": true,
+    "response": {
+      "title": "MEAL System Master Form (Beneficiary + PDM + Complaints)",
+      "description": "",
+      "category": null,
+      "id": 1,
+      "kobo_form_id": "arsYddWQmG4Hn2D8XMEdJw",
+      "is_active": true,
+      "last_synced_at": null,
+      "created_at": "2025-12-23T06:00:17.969992",
+      "updated_at": "2025-12-23T06:00:17.969992",
+      "submission_count": 3
+    }
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/forms/1/schema",
+    "description": "Get form 1 schema",
+    "status_code": 200,
+    "success": true,
+    "response": {
+      "form_id": 1,
+      "form_name": "MEAL System Master Form (Beneficiary + PDM + Complaints)",
+      "schema": {
+        "url": "https://kf.kobotoolbox.org/api/v2/assets/arsYddWQmG4Hn2D8XMEdJw/",
+        "owner": "https://kf.kobotoolbox.org/api/v2/users/samimsafi/",
+        "owner__username": "samimsafi",
+        "parent": null,
+        "settings": {
+          "sector": {
+            "label": "Public Administration",
+            "value": "Public Administration"
+          },
+          "country": [
+            {
+              "label": "Afghanistan",
+              "value": "AFG"
+            }
+          ],
+          "data-table": {
+            "show-hxl-tags": true,
+            "show-group-name": true,
+            "translation-index": 0
+          },
+          "description": "",
+          "organization": "",
+          "country_codes": [
+            "AFG"
+          ]
+        },
+        "asset_type": "survey",
+        "files": [],
+        "summary": {
+          "geo": true,
+          "labels": [
+            "Enumerator ID / Code",
+            "Enumerator full name",
+            "Implementing Organization",
+            "Date of data collection",
+            "Province"
+          ],
+          "columns": [
+            "name",
+            "type",
+            "label",
+            "required",
+            "select_from_list_name",
+            "default",
+            "choice_filter",
+            "hint",
+            "constraint",
+            "constraint_message",
+            "appearance",
+            "calculation",
+            "relevant"
+          ],
+          "lock_all": false,
+          "lock_any": false,
+          "languages": [
+            "English (en)",
+            "French (fr)"
+          ],
+          "row_count": 29,
+          "name_quality": {
+            "ok": 0,
+            "bad": 0,
+            "good": 29,
+            "total": 29,
+            "firsts": {}
+          },
+          "default_translation": "English (en)"
+        },
+        "date_created": "2025-12-08T06:26:52.695687Z",
+        "date_modified": "2025-12-23T05:11:55.116231Z",
+        "date_deployed": "2025-12-23T04:55:31.007184Z",
+        "version_id": "vJgTnsbWe3LPRrWSgYtcTh",
+        "version__content_hash": "49a0e7ec5fcd2930fb2cda36aacf7a18e00bc8e1",
+        "version_count": 15,
+        "has_deployment": true,
+        "deployed_version_id": "vnrLiCpLw6HXPjDDvARBaF",
+        "deployed_versions": {
+          "count": 4,
+          "next": null,
+          "previous": null,
+          "results": [
+            {
+              "uid": "vnrLiCpLw6HXPjDDvARBaF",
+              "url": "https://kf.kobotoolbox.org/api/v2/assets/arsYddWQmG4Hn2D8XMEdJw/versions/vnrLiCpLw6HXPjDDvARBaF/",
+              "content_hash": "49a0e7ec5fcd2930fb2cda36aacf7a18e00bc8e1",
+              "date_deployed": "2025-12-23T04:55:31.000067Z",
+              "date_modified": "2025-12-23T04:55:31.000067Z"
+            },
+            {
+              "uid": "vwg3tys6KMAj9ZtndCThMD",
+              "url": "https://kf.kobotoolbox.org/api/v2/assets/arsYddWQmG4Hn2D8XMEdJw/versions/vwg3tys6KMAj9ZtndCThMD/",
+              "content_hash": "bcd4e74cf87fddb971d190d085738abe3510c9b5",
+              "date_deployed": "2025-12-08T06:37:33.622690Z",
+              "date_modified": "2025-12-08T06:37:33.622690Z"
+            },
+            {
+              "uid": "v99cRHbG8SdpQgR7yzzmRm",
+              "url": "https://kf.kobotoolbox.org/api/v2/assets/arsYddWQmG4Hn2D8XMEdJw/versions/v99cRHbG8SdpQgR7yzzmRm/",
+              "content_hash": "fbbf8ceb63b4d6364d7971fa5706c3d22d747b3a",
+              "date_deployed": "2025-12-08T06:33:40.371051Z",
+              "date_modified": "2025-12-08T06:33:40.371051Z"
+            },
+            {
+              "uid": "vENUVmbriZveKdysVvaPno",
+              "url": "https://kf.kobotoolbox.org/api/v2/assets/arsYddWQmG4Hn2D8XMEdJw/versions/vENUVmbriZveKdysVvaPno/",
+              "content_hash": "17b158400292905c47d075bee8961326bbe703ad",
+              "date_deployed": "2025-12-08T06:27:47.311249Z",
+              "date_modified": "2025-12-08T06:27:47.311249Z"
+            }
+          ]
+        },
+        "deployment__links": {
+          "url": "https://ee.kobotoolbox.org/SY94anzm",
+          "single_url": "https://ee.kobotoolbox.org/single/SY94anzm",
+          "single_once_url": "https://ee.kobotoolbox.org/single/9b675104e5a41969b8a869730ce552f0",
+          "offline_url": "https://ee.kobotoolbox.org/x/SY94anzm",
+          "preview_url": "https://ee.kobotoolbox.org/preview/SY94anzm",
+          "iframe_url": "https://ee.kobotoolbox.org/i/SY94anzm",
+          "single_iframe_url": "https://ee.kobotoolbox.org/single/i/SY94anzm",
+          "single_once_iframe_url": "https://ee.kobotoolbox.org/single/i/9b675104e5a41969b8a869730ce552f0"
+        },
+        "deployment__active": true,
+        "deployment__data_download_links": {
+          "xls_legacy": "https://kc.kobotoolbox.org/samimsafi/exports/arsYddWQmG4Hn2D8XMEdJw/xls/",
+          "csv_legacy": "https://kc.kobotoolbox.org/samimsafi/exports/arsYddWQmG4Hn2D8XMEdJw/csv/",
+          "zip_legacy": "https://kc.kobotoolbox.org/samimsafi/exports/arsYddWQmG4Hn2D8XMEdJw/zip/",
+          "kml_legacy": "https://kc.kobotoolbox.org/samimsafi/exports/arsYddWQmG4Hn2D8XMEdJw/kml/",
+          "xls": "https://kc.kobotoolbox.org/samimsafi/reports/arsYddWQmG4Hn2D8XMEdJw/export.xlsx",
+          "csv": "https://kc.kobotoolbox.org/samimsafi/reports/arsYddWQmG4Hn2D8XMEdJw/export.csv"
+        },
+        "deployment__submission_count": 3,
+        "deployment__last_submission_time": "2025-12-23T05:17:34.629514Z",
+        "deployment__encrypted": false,
+        "deployment__uuid": "332f7aef50dc478993d0504d8afdcf1a",
+        "deployment_status": "deployed",
+        "report_styles": {
+          "default": {
+            "groupDataBy": "",
+            "report_type": "pie",
+            "report_colors": [
+              "rgba(40, 106, 163, 0.8)",
+              "rgba(69, 137, 197, 0.8)",
+              "rgba(0, 123, 234, 0.8)",
+              "rgba(0, 134, 255, 0.8)",
+              "rgba(50, 159, 255, 0.8)",
+              "rgba(100, 182, 255, 0.8)",
+              "rgba(141, 200, 255, 0.8)",
+              "rgba(192, 224, 255, 0.8)"
+            ],
+            "translationIndex": 0
+          },
+          "specified": {
+            "info": {},
+            "photos": {},
+            "hh_size": {},
+            "project": {},
+            "village": {},
+            "comments": {},
+            "district": {},
+            "feedback": {},
+            "province": {
+              "report_type": "polar"
+            },
+            "5O5hBE8Hl": {},
+            "6Ul73Z1xe": {},
+            "AP10ScMPW": {},
+            "AnwPug9Pd": {},
+            "BjAD5MQD3": {},
+            "FKi7waaaN": {},
+            "Knjed03yA": {},
+            "age_group": {},
+            "displaced": {},
+            "hlvixlNZ0": {},
+            "rumHeOg4z": {},
+            "thank_you": {},
+            "ude7AkSgA": {},
+            "/77TsoVEOO": {},
+            "/CP32JM3MT": {},
+            "/PwOH8Qn2u": {},
+            "/Rk2vbGDn6": {},
+            "/VZZu8naWA": {},
+            "/WZEoGnn2J": {},
+            "/Wvhd99EZu": {},
+            "/fOqVp2fV4": {},
+            "/pTNPvEo07": {},
+            "/qd9S5Gp3S": {},
+            "assistance": {},
+            "beneficiary": {},
+            "survey_date": {},
+            "complaint_id": {},
+            "gps_location": {},
+            "organization": {},
+            "enumerator_id": {},
+            "vulnerability": {},
+            "complaint_note": {},
+            "have_complaint": {},
+            "respondent_age": {},
+            "enumerator_name": {},
+            "respondent_name": {},
+            "complainant_name": {},
+            "complainant_phone": {},
+            "distribution_date": {},
+            "head_of_household": {},
+            "photo_beneficiary": {},
+            "respondent_gender": {},
+            "complaint_category": {},
+            "photo_distribution": {},
+            "satisfaction_level": {},
+            "received_assistance": {},
+            "complaint_description": {}
+          },
+          "kuid_names": {
+            "info": "77TsoVEOO",
+            "photos": "pTNPvEo07",
+            "hh_size": "nxtAJvDL1",
+            "project": "gHkW68J6K",
+            "village": "2n7wzMPQi",
+            "comments": "5HE8b3uB1",
+            "district": "2cQdtwW4r",
+            "feedback": "Wvhd99EZu",
+            "province": "ywA3MaKCH",
+            "5O5hBE8Hl": "5O5hBE8Hl",
+            "6Ul73Z1xe": "6Ul73Z1xe",
+            "AP10ScMPW": "AP10ScMPW",
+            "AnwPug9Pd": "AnwPug9Pd",
+            "BjAD5MQD3": "BjAD5MQD3",
+            "FKi7waaaN": "FKi7waaaN",
+            "Knjed03yA": "Knjed03yA",
+            "age_group": "EBSRJraC2",
+            "displaced": "7OLVewi0f",
+            "hlvixlNZ0": "hlvixlNZ0",
+            "rumHeOg4z": "rumHeOg4z",
+            "thank_you": "54NkwGY5m",
+            "ude7AkSgA": "ude7AkSgA",
+            "/77TsoVEOO": "/77TsoVEOO",
+            "/CP32JM3MT": "/CP32JM3MT",
+            "/PwOH8Qn2u": "/PwOH8Qn2u",
+            "/Rk2vbGDn6": "/Rk2vbGDn6",
+            "/VZZu8naWA": "/VZZu8naWA",
+            "/WZEoGnn2J": "/WZEoGnn2J",
+            "/Wvhd99EZu": "/Wvhd99EZu",
+            "/fOqVp2fV4": "/fOqVp2fV4",
+            "/pTNPvEo07": "/pTNPvEo07",
+            "/qd9S5Gp3S": "/qd9S5Gp3S",
+            "assistance": "qd9S5Gp3S",
+            "beneficiary": "fOqVp2fV4",
+            "survey_date": "UiLfHyy1T",
+            "complaint_id": "t6ZbstV9X",
+            "gps_location": "btGMxco7w",
+            "organization": "gI8U4X21Y",
+            "enumerator_id": "upZgSzNNT",
+            "vulnerability": "wgSyA7Pwc",
+            "complaint_note": "IvDkUjxe7",
+            "have_complaint": "ygGoVzoSA",
+            "respondent_age": "YUiXcmtB4",
+            "enumerator_name": "140DkfENW",
+            "respondent_name": "lHt70K2pl",
+            "complainant_name": "nyvUmsrSZ",
+            "complainant_phone": "2evgrjH1S",
+            "distribution_date": "bpsygmyLs",
+            "head_of_household": "0AVVVe6nq",
+            "photo_beneficiary": "9oZus4ado",
+            "respondent_gender": "0TnCm5pHG",
+            "complaint_category": "zw4eTYVa6",
+            "photo_distribution": "kK3Yizn3E",
+            "satisfaction_level": "l6TZORYjU",
+            "received_assistance": "SdpOtAcXx",
+            "complaint_description": "IAxirRxaK"
+          }
+        },
+        "report_custom": {},
+        "advanced_features": {},
+        "advanced_submission_schema": {
+          "type": "object",
+          "$description": "no advanced features activated for this form"
+        },
+        "analysis_form_json": {
+          "engines": {},
+          "additional_fields": []
+        },
+        "map_styles": {},
+        "map_custom": {},
+        "content": {
+          "schema": "1",
+          "survey": [
+            {
+              "name": "info",
+              "type": "begin_group",
+              "$kuid": "77TsoVEOO",
+              "label": [
+                "A. Survey Information",
+                null
+              ],
+              "$xpath": "info",
+              "required": true,
+              "$autoname": "info",
+              "appearance": "field-list"
+            },
+            {
+              "name": "enumerator_id",
+              "type": "text",
+              "$kuid": "upZgSzNNT",
+              "label": [
+                "Enumerator ID / Code",
+                null
+              ],
+              "$xpath": "info/enumerator_id",
+              "required": true,
+              "$autoname": "enumerator_id"
+            },
+            {
+              "name": "enumerator_name",
+              "type": "text",
+              "$kuid": "140DkfENW",
+              "label": [
+                "Enumerator full name",
+                null
+              ],
+              "$xpath": "info/enumerator_name",
+              "required": true,
+              "$autoname": "enumerator_name"
+            },
+            {
+              "name": "organization",
+              "type": "select_one",
+              "$kuid": "gI8U4X21Y",
+              "label": [
+                "Implementing Organization",
+                null
+              ],
+              "$xpath": "info/organization",
+              "required": true,
+              "$autoname": "organization",
+              "select_from_list_name": "org"
+            },
+            {
+              "name": "survey_date",
+              "type": "date",
+              "$kuid": "UiLfHyy1T",
+              "label": [
+                "Date of data collection",
+                null
+              ],
+              "$xpath": "info/survey_date",
+              "default": "today()",
+              "required": true,
+              "$autoname": "survey_date"
+            },
+            {
+              "name": "province",
+              "type": "select_one",
+              "$kuid": "ywA3MaKCH",
+              "label": [
+                "Province",
+                null
+              ],
+              "$xpath": "info/province",
+              "required": true,
+              "$autoname": "province",
+              "select_from_list_name": "province"
+            },
+            {
+              "name": "district",
+              "type": "select_one",
+              "$kuid": "2cQdtwW4r",
+              "label": [
+                "District",
+                null
+              ],
+              "$xpath": "info/district",
+              "required": true,
+              "$autoname": "district",
+              "choice_filter": "province=${province}",
+              "select_from_list_name": "district"
+            },
+            {
+              "name": "village",
+              "type": "text",
+              "$kuid": "2n7wzMPQi",
+              "label": [
+                "Village / Locality",
+                null
+              ],
+              "$xpath": "info/village",
+              "required": true,
+              "$autoname": "village"
+            },
+            {
+              "hint": [
+                "Please capture accurate location",
+                null
+              ],
+              "name": "gps_location",
+              "type": "geopoint",
+              "$kuid": "btGMxco7w",
+              "label": [
+                "GPS location",
+                null
+              ],
+              "$xpath": "info/gps_location",
+              "required": true,
+              "$autoname": "gps_location"
+            },
+            {
+              "type": "end_group",
+              "$kuid": "/77TsoVEOO"
+            },
+            {
+              "name": "beneficiary",
+              "type": "begin_group",
+              "$kuid": "fOqVp2fV4",
+              "label": [
+                "B. Beneficiary / Household Information",
+                null
+              ],
+              "$xpath": "beneficiary",
+              "required": true,
+              "$autoname": "beneficiary",
+              "appearance": "field-list"
+            },
+            {
+              "hint": [
+                "Total number of people in household",
+                null
+              ],
+              "name": "hh_size",
+              "type": "integer",
+              "$kuid": "nxtAJvDL1",
+              "label": [
+                "Household size",
+                null
+              ],
+              "$xpath": "beneficiary/hh_size",
+              "required": true,
+              "$autoname": "hh_size",
+              "constraint": ". >= 1",
+              "constraint_message": "Must be \u22651"
+            },
+            {
+              "name": "head_of_household",
+              "type": "select_one",
+              "$kuid": "0AVVVe6nq",
+              "label": [
+                "Is respondent the head of household?",
+                null
+              ],
+              "$xpath": "beneficiary/head_of_household",
+              "required": true,
+              "$autoname": "head_of_household",
+              "select_from_list_name": "yesno"
+            },
+            {
+              "name": "respondent_name",
+              "type": "text",
+              "$kuid": "lHt70K2pl",
+              "label": [
+                "Name of respondent",
+                null
+              ],
+              "$xpath": "beneficiary/respondent_name",
+              "required": true,
+              "$autoname": "respondent_name"
+            },
+            {
+              "name": "respondent_gender",
+              "type": "select_one",
+              "$kuid": "0TnCm5pHG",
+              "label": [
+                "Gender of respondent",
+                null
+              ],
+              "$xpath": "beneficiary/respondent_gender",
+              "required": true,
+              "$autoname": "respondent_gender",
+              "select_from_list_name": "gender"
+            },
+            {
+              "name": "respondent_age",
+              "type": "integer",
+              "$kuid": "YUiXcmtB4",
+              "label": [
+                "Age of respondent (in years)",
+                null
+              ],
+              "$xpath": "beneficiary/respondent_age",
+              "required": true,
+              "$autoname": "respondent_age",
+              "constraint": ". >= 0 and . <= 120",
+              "constraint_message": "Age must be realistic"
+            },
+            {
+              "name": "age_group",
+              "type": "calculate",
+              "$kuid": "EBSRJraC2",
+              "$xpath": "beneficiary/age_group",
+              "required": false,
+              "$autoname": "age_group",
+              "appearance": "hidden",
+              "calculation": "if(${respondent_age} < 18, '0-17', if(${respondent_age} < 60, '18-59', '60+'))"
+            },
+            {
+              "name": "vulnerability",
+              "type": "select_multiple",
+              "$kuid": "wgSyA7Pwc",
+              "label": [
+                "Vulnerability categories (select all that apply)",
+                null
+              ],
+              "$xpath": "beneficiary/vulnerability",
+              "required": false,
+              "$autoname": "vulnerability",
+              "select_from_list_name": "vuln"
+            },
+            {
+              "name": "displaced",
+              "type": "select_one",
+              "$kuid": "7OLVewi0f",
+              "label": [
+                "Is the household displaced/IDP/refugee/returnee?",
+                null
+              ],
+              "$xpath": "beneficiary/displaced",
+              "required": true,
+              "$autoname": "displaced",
+              "select_from_list_name": "yesno"
+            },
+            {
+              "type": "end_group",
+              "$kuid": "/fOqVp2fV4"
+            },
+            {
+              "name": "assistance",
+              "type": "begin_group",
+              "$kuid": "qd9S5Gp3S",
+              "label": [
+                "C. Assistance Received & Satisfaction",
+                null
+              ],
+              "$xpath": "assistance",
+              "required": true,
+              "$autoname": "assistance",
+              "appearance": "field-list"
+            },
+            {
+              "name": "project",
+              "type": "select_one",
+              "$kuid": "gHkW68J6K",
+              "label": [
+                "Project / Type of assistance received",
+                null
+              ],
+              "$xpath": "assistance/project",
+              "required": true,
+              "$autoname": "project",
+              "select_from_list_name": "project"
+            },
+            {
+              "name": "distribution_date",
+              "type": "date",
+              "$kuid": "bpsygmyLs",
+              "label": [
+                "Date of distribution / service",
+                null
+              ],
+              "$xpath": "assistance/distribution_date",
+              "required": true,
+              "$autoname": "distribution_date"
+            },
+            {
+              "name": "received_assistance",
+              "type": "select_one",
+              "$kuid": "SdpOtAcXx",
+              "label": [
+                "Did household receive the planned assistance?",
+                null
+              ],
+              "$xpath": "assistance/received_assistance",
+              "required": true,
+              "$autoname": "received_assistance",
+              "select_from_list_name": "yesno"
+            },
+            {
+              "hint": [
+                "1=Very dissatisfied \u2192 5=Very satisfied",
+                null
+              ],
+              "name": "satisfaction_level",
+              "type": "select_one",
+              "$kuid": "l6TZORYjU",
+              "label": [
+                "Overall satisfaction with assistance",
+                null
+              ],
+              "$xpath": "assistance/satisfaction_level",
+              "relevant": "${received_assistance} = 'yes'",
+              "required": true,
+              "$autoname": "satisfaction_level",
+              "select_from_list_name": "satisfaction"
+            },
+            {
+              "name": "comments",
+              "type": "text",
+              "$kuid": "5HE8b3uB1",
+              "label": [
+                "Additional comments or suggestions",
+                null
+              ],
+              "$xpath": "assistance/comments",
+              "required": false,
+              "$autoname": "comments",
+              "appearance": "multiline"
+            },
+            {
+              "type": "end_group",
+              "$kuid": "/qd9S5Gp3S"
+            },
+            {
+              "hint": [
+                "Only fill if there is feedback/complaint",
+                null
+              ],
+              "name": "feedback",
+              "type": "begin_group",
+              "$kuid": "Wvhd99EZu",
+              "label": [
+                "D. Feedback & Complaints Mechanism",
+                null
+              ],
+              "$xpath": "feedback",
+              "required": true,
+              "$autoname": "feedback",
+              "appearance": "field-list"
+            },
+            {
+              "name": "have_complaint",
+              "type": "select_one",
+              "$kuid": "ygGoVzoSA",
+              "label": [
+                "Do you have any complaint or feedback?",
+                null
+              ],
+              "$xpath": "feedback/have_complaint",
+              "required": true,
+              "$autoname": "have_complaint",
+              "select_from_list_name": "yesno"
+            },
+            {
+              "name": "complaint_category",
+              "type": "select_one",
+              "$kuid": "zw4eTYVa6",
+              "label": [
+                "Category of complaint",
+                null
+              ],
+              "$xpath": "feedback/complaint_category",
+              "relevant": "${have_complaint} = 'yes'",
+              "required": true,
+              "$autoname": "complaint_category",
+              "select_from_list_name": "complaint_type"
+            },
+            {
+              "name": "complaint_description",
+              "type": "text",
+              "$kuid": "IAxirRxaK",
+              "label": [
+                "Describe the complaint/feedback",
+                null
+              ],
+              "$xpath": "feedback/complaint_description",
+              "relevant": "${have_complaint} = 'yes'",
+              "required": true,
+              "$autoname": "complaint_description",
+              "appearance": "multiline"
+            },
+            {
+              "name": "complainant_name",
+              "type": "text",
+              "$kuid": "nyvUmsrSZ",
+              "label": [
+                "Name (optional \u2013 can stay anonymous)",
+                null
+              ],
+              "$xpath": "feedback/complainant_name",
+              "relevant": "${have_complaint} = 'yes'",
+              "required": false,
+              "$autoname": "complainant_name"
+            },
+            {
+              "name": "complainant_phone",
+              "type": "text",
+              "$kuid": "2evgrjH1S",
+              "label": [
+                "Phone (optional)",
+                null
+              ],
+              "$xpath": "feedback/complainant_phone",
+              "relevant": "${have_complaint} = 'yes'",
+              "required": false,
+              "$autoname": "complainant_phone"
+            },
+            {
+              "name": "complaint_id",
+              "type": "calculate",
+              "$kuid": "t6ZbstV9X",
+              "$xpath": "feedback/complaint_id",
+              "required": false,
+              "$autoname": "complaint_id",
+              "appearance": "hidden",
+              "calculation": "concat('CMP-', format-date-time(today(), '%Y%m%d'), '-', uuid())"
+            },
+            {
+              "name": "complaint_note",
+              "type": "note",
+              "$kuid": "IvDkUjxe7",
+              "label": [
+                "Your complaint has been recorded. Reference: ${complaint_id}",
+                null
+              ],
+              "$xpath": "feedback/complaint_note",
+              "relevant": "${have_complaint} = 'yes'",
+              "required": false,
+              "$autoname": "complaint_note"
+            },
+            {
+              "type": "end_group",
+              "$kuid": "/Wvhd99EZu"
+            },
+            {
+              "name": "photos",
+              "type": "begin_group",
+              "$kuid": "pTNPvEo07",
+              "label": [
+                "E. Supporting Photos",
+                null
+              ],
+              "$xpath": "photos",
+              "required": false,
+              "$autoname": "photos",
+              "appearance": "field-list"
+            },
+            {
+              "name": "photo_beneficiary",
+              "type": "image",
+              "$kuid": "9oZus4ado",
+              "label": [
+                "Photo of beneficiary or ration card (optional)",
+                null
+              ],
+              "$xpath": "photos/photo_beneficiary",
+              "required": false,
+              "$autoname": "photo_beneficiary"
+            },
+            {
+              "name": "photo_distribution",
+              "type": "image",
+              "$kuid": "kK3Yizn3E",
+              "label": [
+                "Photo of distribution point / items (optional)",
+                null
+              ],
+              "$xpath": "photos/photo_distribution",
+              "required": false,
+              "$autoname": "photo_distribution"
+            },
+            {
+              "type": "end_group",
+              "$kuid": "/pTNPvEo07"
+            },
+            {
+              "name": "thank_you",
+              "type": "note",
+              "$kuid": "54NkwGY5m",
+              "label": [
+                "Thank you for your time!",
+                null
+              ],
+              "$xpath": "thank_you",
+              "required": false,
+              "$autoname": "thank_you"
+            }
+          ],
+          "choices": [
+            {
+              "name": "ohw",
+              "$kuid": "nOkizaVHW",
+              "label": [
+                "Open Hands Welfare",
+                "OHW"
+              ],
+              "list_name": "org",
+              "$autovalue": "ohw"
+            },
+            {
+              "name": "partner1",
+              "$kuid": "b2xtp3DE1",
+              "label": [
+                "Partner Organization 1",
+                "Partenaire 1"
+              ],
+              "list_name": "org",
+              "$autovalue": "partner1"
+            },
+            {
+              "name": "p1",
+              "$kuid": "s47kVw9Ip",
+              "label": [
+                "Kabul",
+                "Province 1"
+              ],
+              "list_name": "province",
+              "$autovalue": "p1"
+            },
+            {
+              "name": "p2",
+              "$kuid": "T0pPIYWku",
+              "label": [
+                "Balkh",
+                "Province 2"
+              ],
+              "list_name": "province",
+              "$autovalue": "p2"
+            },
+            {
+              "name": "p3",
+              "$kuid": "hGRGxI4Pu",
+              "label": [
+                "Jalal Abad",
+                "Province 3"
+              ],
+              "list_name": "province",
+              "$autovalue": "p3"
+            },
+            {
+              "name": "p1_d1",
+              "$kuid": "Dl1gZhzPd",
+              "label": [
+                "Bagrami (Kabul)",
+                "District 1"
+              ],
+              "province": "p1",
+              "list_name": "district",
+              "$autovalue": "p1_d1"
+            },
+            {
+              "name": "p1_d2",
+              "$kuid": "2tJ08PyBi",
+              "label": [
+                "Dehsabz (Kabul)",
+                "District 2"
+              ],
+              "province": "p1",
+              "list_name": "district",
+              "$autovalue": "p1_d2"
+            },
+            {
+              "name": "p2_d1",
+              "$kuid": "kvvia6phN",
+              "label": [
+                "Sholgara (Balkh)",
+                "District 1"
+              ],
+              "province": "p2",
+              "list_name": "district",
+              "$autovalue": "p2_d1"
+            },
+            {
+              "name": "p3_d1",
+              "$kuid": "SCaMSkRNA",
+              "label": [
+                "Dronta (Jalal Abad)",
+                "District 1"
+              ],
+              "province": "p3",
+              "list_name": "district",
+              "$autovalue": "p3_d1"
+            },
+            {
+              "name": "yes",
+              "$kuid": "VtkvkTa87",
+              "label": [
+                "Yes",
+                "Oui"
+              ],
+              "list_name": "yesno",
+              "$autovalue": "yes"
+            },
+            {
+              "name": "no",
+              "$kuid": "ljKfEzXej",
+              "label": [
+                "No",
+                "Non"
+              ],
+              "list_name": "yesno",
+              "$autovalue": "no"
+            },
+            {
+              "name": "male",
+              "$kuid": "r66kYAbRS",
+              "label": [
+                "Male",
+                "Homme"
+              ],
+              "list_name": "gender",
+              "$autovalue": "male"
+            },
+            {
+              "name": "female",
+              "$kuid": "1cZmg8dDf",
+              "label": [
+                "Female",
+                "Femme"
+              ],
+              "list_name": "gender",
+              "$autovalue": "female"
+            },
+            {
+              "name": "other",
+              "$kuid": "70QZl3UJw",
+              "label": [
+                "Other / Prefer not to say",
+                "Autre"
+              ],
+              "list_name": "gender",
+              "$autovalue": "other"
+            },
+            {
+              "name": "chronic_illness",
+              "$kuid": "6JGSirImW",
+              "label": [
+                "Chronic illness",
+                "Maladie chronique"
+              ],
+              "list_name": "vuln",
+              "$autovalue": "chronic_illness"
+            },
+            {
+              "name": "disabled",
+              "$kuid": "9eO4TW61j",
+              "label": [
+                "Person with disability",
+                "Personne handicap\u00e9e"
+              ],
+              "list_name": "vuln",
+              "$autovalue": "disabled"
+            },
+            {
+              "name": "elderly",
+              "$kuid": "tzE9Dv7dq",
+              "label": [
+                "Elderly (60+)",
+                "Personne \u00e2g\u00e9e"
+              ],
+              "list_name": "vuln",
+              "$autovalue": "elderly"
+            },
+            {
+              "name": "child_headed",
+              "$kuid": "q7SgFAhCC",
+              "label": [
+                "Child-headed household",
+                "M\u00e9nage dirig\u00e9 par enfant"
+              ],
+              "list_name": "vuln",
+              "$autovalue": "child_headed"
+            },
+            {
+              "name": "pregnant_lactating",
+              "$kuid": "Kn1FAUUpN",
+              "label": [
+                "Pregnant or lactating woman",
+                "Femme enceinte/allaitante"
+              ],
+              "list_name": "vuln",
+              "$autovalue": "pregnant_lactating"
+            },
+            {
+              "name": "food",
+              "$kuid": "BC3Ymp5Za",
+              "label": [
+                "Food Assistance",
+                "Assistance alimentaire"
+              ],
+              "list_name": "project",
+              "$autovalue": "food"
+            },
+            {
+              "name": "cash",
+              "$kuid": "KecpDbE6x",
+              "label": [
+                "Cash Transfer",
+                "Transfert mon\u00e9taire"
+              ],
+              "list_name": "project",
+              "$autovalue": "cash"
+            },
+            {
+              "name": "nfi",
+              "$kuid": "hzqIR9v80",
+              "label": [
+                "Non-Food Items",
+                "Articles non alimentaires"
+              ],
+              "list_name": "project",
+              "$autovalue": "nfi"
+            },
+            {
+              "name": "wash",
+              "$kuid": "sFIGYbKPv",
+              "label": [
+                "WASH",
+                "Eau & Assainissement"
+              ],
+              "list_name": "project",
+              "$autovalue": "wash"
+            },
+            {
+              "name": "1",
+              "$kuid": "L4fGcAnl1",
+              "label": [
+                "1 - Very dissatisfied",
+                "1 - Tr\u00e8s insatisfait"
+              ],
+              "list_name": "satisfaction",
+              "$autovalue": "1"
+            },
+            {
+              "name": "2",
+              "$kuid": "kVufHexJv",
+              "label": [
+                "2 - Dissatisfied",
+                "2 - Insatisfait"
+              ],
+              "list_name": "satisfaction",
+              "$autovalue": "2"
+            },
+            {
+              "name": "3",
+              "$kuid": "SBPDWPUCw",
+              "label": [
+                "3 - Neutral",
+                "3 - Neutre"
+              ],
+              "list_name": "satisfaction",
+              "$autovalue": "3"
+            },
+            {
+              "name": "4",
+              "$kuid": "ioGJJkHHw",
+              "label": [
+                "4 - Satisfied",
+                "4 - Satisfait"
+              ],
+              "list_name": "satisfaction",
+              "$autovalue": "4"
+            },
+            {
+              "name": "5",
+              "$kuid": "frwTOfCKZ",
+              "label": [
+                "5 - Very satisfied",
+                "5 - Tr\u00e8s satisfait"
+              ],
+              "list_name": "satisfaction",
+              "$autovalue": "5"
+            },
+            {
+              "name": "quality",
+              "$kuid": "yGsydUpOq",
+              "label": [
+                "Quality or quantity of aid",
+                "Qualit\u00e9/quantit\u00e9"
+              ],
+              "list_name": "complaint_type",
+              "$autovalue": "quality"
+            },
+            {
+              "name": "behavior",
+              "$kuid": "asRhD5xDL",
+              "label": [
+                "Staff behavior",
+                "Comportement du personnel"
+              ],
+              "list_name": "complaint_type",
+              "$autovalue": "behavior"
+            },
+            {
+              "name": "exclusion",
+              "$kuid": "QoSe3OVPH",
+              "label": [
+                "Exclusion / targeting error",
+                "Exclusion/erreur de ciblage"
+              ],
+              "list_name": "complaint_type",
+              "$autovalue": "exclusion"
+            },
+            {
+              "name": "corruption",
+              "$kuid": "3wCrlN2mZ",
+              "label": [
+                "Corruption or fraud",
+                "Corruption/fraude"
+              ],
+              "list_name": "complaint_type",
+              "$autovalue": "corruption"
+            },
+            {
+              "name": "other",
+              "$kuid": "i1dNYp59N",
+              "label": [
+                "Other",
+                "Autre"
+              ],
+              "list_name": "complaint_type",
+              "$autovalue": "other"
+            }
+          ],
+          "settings": {
+            "version": "v1.0",
+            "id_string": "meal_master_2025",
+            "default_language": "English (en)"
+          },
+          "translated": [
+            "hint",
+            "label"
+          ],
+          "translations": [
+            "English (en)",
+            "French (fr)"
+          ]
+        },
+        "downloads": [
+          {
+            "format": "xls",
+            "url": "https://kf.kobotoolbox.org/api/v2/assets/arsYddWQmG4Hn2D8XMEdJw.xls"
+          },
+          {
+            "format": "xml",
+            "url": "https://kf.kobotoolbox.org/api/v2/assets/arsYddWQmG4Hn2D8XMEdJw.xml"
+          }
+        ],
+        "embeds": [
+          {
+            "format": "xls",
+            "url": "https://kf.kobotoolbox.org/api/v2/assets/arsYddWQmG4Hn2D8XMEdJw/xls/"
+          },
+          {
+            "format": "xform",
+            "url": "https://kf.kobotoolbox.org/api/v2/assets/arsYddWQmG4Hn2D8XMEdJw/xform/"
+          }
+        ],
+        "xform_link": "https://kf.kobotoolbox.org/api/v2/assets/arsYddWQmG4Hn2D8XMEdJw/xform/",
+        "hooks_link": "https://kf.kobotoolbox.org/api/v2/assets/arsYddWQmG4Hn2D8XMEdJw/hooks/",
+        "tag_string": "",
+        "uid": "arsYddWQmG4Hn2D8XMEdJw",
+        "kind": "asset",
+        "xls_link": "https://kf.kobotoolbox.org/api/v2/assets/arsYddWQmG4Hn2D8XMEdJw/xls/",
+        "name": "MEAL System Master Form (Beneficiary + PDM + Complaints)",
+        "assignable_permissions": [
+          {
+            "url": "https://kf.kobotoolbox.org/api/v2/permissions/view_asset/",
+            "label": "View form"
+          },
+          {
+            "url": "https://kf.kobotoolbox.org/api/v2/permissions/change_asset/",
+            "label": "Edit form"
+          },
+          {
+            "url": "https://kf.kobotoolbox.org/api/v2/permissions/manage_asset/",
+            "label": "Manage project"
+          },
+          {
+            "url": "https://kf.kobotoolbox.org/api/v2/permissions/add_submissions/",
+            "label": "Add submissions"
+          },
+          {
+            "url": "https://kf.kobotoolbox.org/api/v2/permissions/view_submissions/",
+            "label": "View submissions"
+          },
+          {
+            "url": "https://kf.kobotoolbox.org/api/v2/permissions/partial_submissions/",
+            "label": {
+              "default": "Act on submissions only from specific users",
+              "view_submissions": "View submissions only from specific users",
+              "change_submissions": "Edit submissions only from specific users",
+              "delete_submissions": "Delete submissions only from specific users",
+              "validate_submissions": "Validate submissions only from specific users"
+            }
+          },
+          {
+            "url": "https://kf.kobotoolbox.org/api/v2/permissions/change_submissions/",
+            "label": "Edit submissions"
+          },
+          {
+            "url": "https://kf.kobotoolbox.org/api/v2/permissions/delete_submissions/",
+            "label": "Delete submissions"
+          },
+          {
+            "url": "https://kf.kobotoolbox.org/api/v2/permissions/validate_submissions/",
+            "label": "Validate submissions"
+          }
+        ],
+        "permissions": [
+          {
+            "url": "https://kf.kobotoolbox.org/api/v2/assets/arsYddWQmG4Hn2D8XMEdJw/permission-assignments/pRXgkhcrUeU4L76fAS23nm/",
+            "user": "https://kf.kobotoolbox.org/api/v2/users/samimsafi/",
+            "permission": "https://kf.kobotoolbox.org/api/v2/permissions/add_submissions/",
+            "label": "Add submissions"
+          },
+          {
+            "url": "https://kf.kobotoolbox.org/api/v2/assets/arsYddWQmG4Hn2D8XMEdJw/permission-assignments/pP2XwDnxfKbGcr7T5YYqQw/",
+            "user": "https://kf.kobotoolbox.org/api/v2/users/samimsafi/",
+            "permission": "https://kf.kobotoolbox.org/api/v2/permissions/change_asset/",
+            "label": "Edit form"
+          },
+          {
+            "url": "https://kf.kobotoolbox.org/api/v2/assets/arsYddWQmG4Hn2D8XMEdJw/permission-assignments/p8PoJJ3fme7AFk3LunehXM/",
+            "user": "https://kf.kobotoolbox.org/api/v2/users/samimsafi/",
+            "permission": "https://kf.kobotoolbox.org/api/v2/permissions/change_submissions/",
+            "label": "Edit submissions"
+          },
+          {
+            "url": "https://kf.kobotoolbox.org/api/v2/assets/arsYddWQmG4Hn2D8XMEdJw/permission-assignments/pFrgRiDM9xSgrYz5MD8EHt/",
+            "user": "https://kf.kobotoolbox.org/api/v2/users/samimsafi/",
+            "permission": "https://kf.kobotoolbox.org/api/v2/permissions/delete_submissions/",
+            "label": "Delete submissions"
+          },
+          {
+            "url": "https://kf.kobotoolbox.org/api/v2/assets/arsYddWQmG4Hn2D8XMEdJw/permission-assignments/pG8ee7XwUjwudASBGPfAya/",
+            "user": "https://kf.kobotoolbox.org/api/v2/users/samimsafi/",
+            "permission": "https://kf.kobotoolbox.org/api/v2/permissions/manage_asset/",
+            "label": "Manage project"
+          },
+          {
+            "url": "https://kf.kobotoolbox.org/api/v2/assets/arsYddWQmG4Hn2D8XMEdJw/permission-assignments/p8YxEkL24hBbLZTZf2T2ty/",
+            "user": "https://kf.kobotoolbox.org/api/v2/users/samimsafi/",
+            "permission": "https://kf.kobotoolbox.org/api/v2/permissions/validate_submissions/",
+            "label": "Validate submissions"
+          },
+          {
+            "url": "https://kf.kobotoolbox.org/api/v2/assets/arsYddWQmG4Hn2D8XMEdJw/permission-assignments/py7VXBYhMhtg6mqDUPqEsj/",
+            "user": "https://kf.kobotoolbox.org/api/v2/users/samimsafi/",
+            "permission": "https://kf.kobotoolbox.org/api/v2/permissions/view_asset/",
+            "label": "View form"
+          },
+          {
+            "url": "https://kf.kobotoolbox.org/api/v2/assets/arsYddWQmG4Hn2D8XMEdJw/permission-assignments/pWbquqQoSwP9QUUAjPPK87/",
+            "user": "https://kf.kobotoolbox.org/api/v2/users/samimsafi/",
+            "permission": "https://kf.kobotoolbox.org/api/v2/permissions/view_submissions/",
+            "label": "View submissions"
+          }
+        ],
+        "effective_permissions": [
+          {
+            "codename": "change_submissions"
+          },
+          {
+            "codename": "delete_submissions"
+          },
+          {
+            "codename": "delete_asset"
+          },
+          {
+            "codename": "manage_asset"
+          },
+          {
+            "codename": "validate_submissions"
+          },
+          {
+            "codename": "change_asset"
+          },
+          {
+            "codename": "add_submissions"
+          },
+          {
+            "codename": "view_asset"
+          },
+          {
+            "codename": "view_submissions"
+          }
+        ],
+        "exports": "https://kf.kobotoolbox.org/api/v2/assets/arsYddWQmG4Hn2D8XMEdJw/exports/",
+        "export_settings": [
+          {
+            "uid": "esW7PkAQscyup9SWsjNgZH4",
+            "url": "https://kf.kobotoolbox.org/api/v2/assets/arsYddWQmG4Hn2D8XMEdJw/export-settings/esW7PkAQscyup9SWsjNgZH4/",
+            "data_url_csv": "https://kf.kobotoolbox.org/api/v2/assets/arsYddWQmG4Hn2D8XMEdJw/export-settings/esW7PkAQscyup9SWsjNgZH4/data.csv",
+            "data_url_xlsx": "https://kf.kobotoolbox.org/api/v2/assets/arsYddWQmG4Hn2D8XMEdJw/export-settings/esW7PkAQscyup9SWsjNgZH4/data.xlsx",
+            "name": "",
+            "date_modified": "2025-12-23T05:14:14.477873Z",
+            "export_settings": {
+              "lang": "English (en)",
+              "type": "xls",
+              "query": {},
+              "fields": [],
+              "group_sep": "/",
+              "multiple_select": "both",
+              "include_media_url": true,
+              "hierarchy_in_labels": false,
+              "fields_from_all_versions": true
+            }
+          }
+        ],
+        "data": "https://kf.kobotoolbox.org/api/v2/assets/arsYddWQmG4Hn2D8XMEdJw/data/",
+        "children": {
+          "count": 0
+        },
+        "subscribers_count": 0,
+        "status": "private",
+        "access_types": null,
+        "data_sharing": {},
+        "paired_data": "https://kf.kobotoolbox.org/api/v2/assets/arsYddWQmG4Hn2D8XMEdJw/paired-data/",
+        "project_ownership": null,
+        "owner_label": "samimsafi",
+        "last_modified_by": "samimsafi"
+      }
+    }
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/forms/1/filter-fields",
+    "description": "Get form 1 filter fields",
+    "status_code": 200,
+    "success": true,
+    "response": {
+      "form_id": 1,
+      "filter_fields": [
+        {
+          "name": "enumerator_id",
+          "label": "Enumerator ID / Code",
+          "type": "text",
+          "options": []
+        },
+        {
+          "name": "enumerator_name",
+          "label": "Enumerator full name",
+          "type": "text",
+          "options": []
+        },
+        {
+          "name": "organization",
+          "label": "Implementing Organization",
+          "type": "select_one",
+          "options": []
+        },
+        {
+          "name": "survey_date",
+          "label": "Date of data collection",
+          "type": "date",
+          "options": []
+        },
+        {
+          "name": "province",
+          "label": "Province",
+          "type": "select_one",
+          "options": []
+        },
+        {
+          "name": "district",
+          "label": "District",
+          "type": "select_one",
+          "options": []
+        },
+        {
+          "name": "village",
+          "label": "Village / Locality",
+          "type": "text",
+          "options": []
+        },
+        {
+          "name": "gps_location",
+          "label": "GPS location",
+          "type": "geopoint",
+          "options": []
+        },
+        {
+          "name": "hh_size",
+          "label": "Household size",
+          "type": "integer",
+          "options": []
+        },
+        {
+          "name": "head_of_household",
+          "label": "Is respondent the head of household?",
+          "type": "select_one",
+          "options": []
+        },
+        {
+          "name": "respondent_name",
+          "label": "Name of respondent",
+          "type": "text",
+          "options": []
+        },
+        {
+          "name": "respondent_gender",
+          "label": "Gender of respondent",
+          "type": "select_one",
+          "options": []
+        },
+        {
+          "name": "respondent_age",
+          "label": "Age of respondent (in years)",
+          "type": "integer",
+          "options": []
+        },
+        {
+          "name": "vulnerability",
+          "label": "Vulnerability categories (select all that apply)",
+          "type": "select_multiple",
+          "options": []
+        },
+        {
+          "name": "displaced",
+          "label": "Is the household displaced/IDP/refugee/returnee?",
+          "type": "select_one",
+          "options": []
+        },
+        {
+          "name": "project",
+          "label": "Project / Type of assistance received",
+          "type": "select_one",
+          "options": []
+        },
+        {
+          "name": "distribution_date",
+          "label": "Date of distribution / service",
+          "type": "date",
+          "options": []
+        },
+        {
+          "name": "received_assistance",
+          "label": "Did household receive the planned assistance?",
+          "type": "select_one",
+          "options": []
+        },
+        {
+          "name": "satisfaction_level",
+          "label": "Overall satisfaction with assistance",
+          "type": "select_one",
+          "options": []
+        },
+        {
+          "name": "comments",
+          "label": "Additional comments or suggestions",
+          "type": "text",
+          "options": []
+        },
+        {
+          "name": "have_complaint",
+          "label": "Do you have any complaint or feedback?",
+          "type": "select_one",
+          "options": []
+        },
+        {
+          "name": "complaint_category",
+          "label": "Category of complaint",
+          "type": "select_one",
+          "options": []
+        },
+        {
+          "name": "complaint_description",
+          "label": "Describe the complaint/feedback",
+          "type": "text",
+          "options": []
+        },
+        {
+          "name": "complainant_name",
+          "label": "Name (optional \u2013 can stay anonymous)",
+          "type": "text",
+          "options": []
+        },
+        {
+          "name": "complainant_phone",
+          "label": "Phone (optional)",
+          "type": "text",
+          "options": []
+        },
+        {
+          "name": "info/enumerator_id",
+          "label": "Info/Enumerator Id",
+          "type": "text",
+          "options": [
+            {
+              "value": "265.0",
+              "label": "265.0"
+            },
+            {
+              "value": "354.0",
+              "label": "354.0"
+            },
+            {
+              "value": "65.0",
+              "label": "65.0"
+            }
+          ]
+        },
+        {
+          "name": "info/enumerator_name",
+          "label": "Info/Enumerator Name",
+          "type": "text",
+          "options": [
+            {
+              "value": "Ahmad Khan Ahmadi",
+              "label": "Ahmad Khan Ahmadi"
+            },
+            {
+              "value": "Asad Safi",
+              "label": "Asad Safi"
+            },
+            {
+              "value": "Noman",
+              "label": "Noman"
+            }
+          ]
+        },
+        {
+          "name": "info/organization",
+          "label": "Info/Organization",
+          "type": "text",
+          "options": [
+            {
+              "value": "ohw",
+              "label": "Ohw"
+            },
+            {
+              "value": "partner1",
+              "label": "Partner1"
+            }
+          ]
+        },
+        {
+          "name": "info/survey_date",
+          "label": "Info/Survey Date",
+          "type": "text",
+          "options": [
+            {
+              "value": "2025-12-07T00:00:00",
+              "label": "2025-12-07T00:00:00"
+            },
+            {
+              "value": "2025-12-08T00:00:00",
+              "label": "2025-12-08T00:00:00"
+            }
+          ]
+        },
+        {
+          "name": "info/province",
+          "label": "Info/Province",
+          "type": "text",
+          "options": [
+            {
+              "value": "p1",
+              "label": "P1"
+            },
+            {
+              "value": "p2",
+              "label": "P2"
+            },
+            {
+              "value": "p3",
+              "label": "P3"
+            }
+          ]
+        },
+        {
+          "name": "info/district",
+          "label": "Info/District",
+          "type": "text",
+          "options": [
+            {
+              "value": "p1_d1",
+              "label": "P1 D1"
+            },
+            {
+              "value": "p2_d1",
+              "label": "P2 D1"
+            },
+            {
+              "value": "p3_d1",
+              "label": "P3 D1"
+            }
+          ]
+        },
+        {
+          "name": "info/village",
+          "label": "Info/Village",
+          "type": "text",
+          "options": [
+            {
+              "value": "Ahmad ali",
+              "label": "Ahmad Ali"
+            },
+            {
+              "value": "Village",
+              "label": "Village"
+            },
+            {
+              "value": "asdasd",
+              "label": "Asdasd"
+            }
+          ]
+        },
+        {
+          "name": "info/gps_location",
+          "label": "Info/Gps Location",
+          "type": "text",
+          "options": [
+            {
+              "value": "34.480949 69.131318 0 0",
+              "label": "34.480949 69.131318 0 0"
+            },
+            {
+              "value": "34.496399 69.200086 0 0",
+              "label": "34.496399 69.200086 0 0"
+            },
+            {
+              "value": "34.516106 69.825835 0 0",
+              "label": "34.516106 69.825835 0 0"
+            }
+          ]
+        },
+        {
+          "name": "beneficiary/hh_size",
+          "label": "Beneficiary/Hh Size",
+          "type": "text",
+          "options": [
+            {
+              "value": "20",
+              "label": "20"
+            },
+            {
+              "value": "25",
+              "label": "25"
+            },
+            {
+              "value": "652",
+              "label": "652"
+            }
+          ]
+        },
+        {
+          "name": "beneficiary/head_of_household",
+          "label": "Beneficiary/Head Of Household",
+          "type": "text",
+          "options": [
+            {
+              "value": "no",
+              "label": "No"
+            },
+            {
+              "value": "yes",
+              "label": "Yes"
+            }
+          ]
+        },
+        {
+          "name": "beneficiary/respondent_name",
+          "label": "Beneficiary/Respondent Name",
+          "type": "text",
+          "options": [
+            {
+              "value": "Ahmad Ali",
+              "label": "Ahmad Ali"
+            },
+            {
+              "value": "Asad Safi",
+              "label": "Asad Safi"
+            },
+            {
+              "value": "Noman",
+              "label": "Noman"
+            }
+          ]
+        },
+        {
+          "name": "beneficiary/respondent_gender",
+          "label": "Beneficiary/Respondent Gender",
+          "type": "text",
+          "options": [
+            {
+              "value": "female",
+              "label": "Female"
+            },
+            {
+              "value": "male",
+              "label": "Male"
+            }
+          ]
+        },
+        {
+          "name": "beneficiary/respondent_age",
+          "label": "Beneficiary/Respondent Age",
+          "type": "text",
+          "options": [
+            {
+              "value": "22.0",
+              "label": "22.0"
+            },
+            {
+              "value": "25.0",
+              "label": "25.0"
+            }
+          ]
+        },
+        {
+          "name": "beneficiary/age_group",
+          "label": "Beneficiary/Age Group",
+          "type": "text",
+          "options": [
+            {
+              "value": "18-59",
+              "label": "18-59"
+            }
+          ]
+        },
+        {
+          "name": "beneficiary/vulnerability",
+          "label": "Beneficiary/Vulnerability",
+          "type": "text",
+          "options": [
+            {
+              "value": "chronic_illness disabled",
+              "label": "Chronic Illness Disabled"
+            },
+            {
+              "value": "chronic_illness disabled elderly",
+              "label": "Chronic Illness Disabled Elderly"
+            },
+            {
+              "value": "chronic_illness disabled elderly child_headed",
+              "label": "Chronic Illness Disabled Elderly Child Headed"
+            }
+          ]
+        },
+        {
+          "name": "beneficiary/displaced",
+          "label": "Beneficiary/Displaced",
+          "type": "text",
+          "options": [
+            {
+              "value": "no",
+              "label": "No"
+            },
+            {
+              "value": "yes",
+              "label": "Yes"
+            }
+          ]
+        },
+        {
+          "name": "assistance/project",
+          "label": "Assistance/Project",
+          "type": "text",
+          "options": [
+            {
+              "value": "cash",
+              "label": "Cash"
+            },
+            {
+              "value": "food",
+              "label": "Food"
+            },
+            {
+              "value": "nfi",
+              "label": "Nfi"
+            }
+          ]
+        },
+        {
+          "name": "assistance/distribution_date",
+          "label": "Assistance/Distribution Date",
+          "type": "text",
+          "options": [
+            {
+              "value": "2025-12-08T00:00:00",
+              "label": "2025-12-08T00:00:00"
+            }
+          ]
+        },
+        {
+          "name": "assistance/received_assistance",
+          "label": "Assistance/Received Assistance",
+          "type": "text",
+          "options": [
+            {
+              "value": "no",
+              "label": "No"
+            },
+            {
+              "value": "yes",
+              "label": "Yes"
+            }
+          ]
+        },
+        {
+          "name": "assistance/satisfaction_level",
+          "label": "Assistance/Satisfaction Level",
+          "type": "text",
+          "options": [
+            {
+              "value": "1",
+              "label": "1"
+            },
+            {
+              "value": "4",
+              "label": "4"
+            }
+          ]
+        },
+        {
+          "name": "assistance/comments",
+          "label": "Assistance/Comments",
+          "type": "text",
+          "options": [
+            {
+              "value": "asdasd",
+              "label": "Asdasd"
+            },
+            {
+              "value": "sadasdasd",
+              "label": "Sadasdasd"
+            }
+          ]
+        },
+        {
+          "name": "feedback/have_complaint",
+          "label": "Feedback/Have Complaint",
+          "type": "text",
+          "options": [
+            {
+              "value": "no",
+              "label": "No"
+            },
+            {
+              "value": "yes",
+              "label": "Yes"
+            }
+          ]
+        },
+        {
+          "name": "feedback/complaint_id",
+          "label": "Feedback/Complaint Id",
+          "type": "text",
+          "options": [
+            {
+              "value": "CMP-20251221-da39681d-e59f-4492-acdf-65dde06572d0",
+              "label": "Cmp-20251221-Da39681D-E59F-4492-Acdf-65Dde06572D0"
+            },
+            {
+              "value": "CMP-20251223-acf5bdd0-16a4-4090-85f3-5197b4529441",
+              "label": "Cmp-20251223-Acf5Bdd0-16A4-4090-85F3-5197B4529441"
+            },
+            {
+              "value": "CMP-20251223-b0ada758-b117-4621-8a90-8918521fe122",
+              "label": "Cmp-20251223-B0Ada758-B117-4621-8A90-8918521Fe122"
+            }
+          ]
+        },
+        {
+          "name": "photos/photo_beneficiary",
+          "label": "Photos/Photo Beneficiary",
+          "type": "text",
+          "options": [
+            {
+              "value": "freepik_assistant_1764755175444-11_9_16.png",
+              "label": "Freepik Assistant 1764755175444-11 9 16.Png"
+            }
+          ]
+        },
+        {
+          "name": "photos/photo_distribution",
+          "label": "Photos/Photo Distribution",
+          "type": "text",
+          "options": [
+            {
+              "value": "freepik_assistant_1764755175444-11_9_21.png",
+              "label": "Freepik Assistant 1764755175444-11 9 21.Png"
+            }
+          ]
+        },
+        {
+          "name": "meta/instanceID",
+          "label": "Meta/Instanceid",
+          "type": "text",
+          "options": [
+            {
+              "value": "uuid:830fd688-d611-42ce-8726-28cfeabb1d8d",
+              "label": "Uuid:830Fd688-D611-42Ce-8726-28Cfeabb1D8D"
+            },
+            {
+              "value": "uuid:d775f819-f61d-4904-9670-92a050d0c2c9",
+              "label": "Uuid:D775F819-F61D-4904-9670-92A050D0C2C9"
+            },
+            {
+              "value": "uuid:ee48b9b7-8252-4c42-88ef-a7031e220267",
+              "label": "Uuid:Ee48B9B7-8252-4C42-88Ef-A7031E220267"
+            }
+          ]
+        },
+        {
+          "name": "meta/rootUuid",
+          "label": "Meta/Rootuuid",
+          "type": "text",
+          "options": [
+            {
+              "value": "uuid:224d3ec1-6610-4b93-a3f2-0a7a51fcbb60",
+              "label": "Uuid:224D3Ec1-6610-4B93-A3F2-0A7A51Fcbb60"
+            },
+            {
+              "value": "uuid:3cc18c25-b91c-479e-a293-1546b92a5a36",
+              "label": "Uuid:3Cc18C25-B91C-479E-A293-1546B92A5A36"
+            },
+            {
+              "value": "uuid:9ef9476e-3d71-4922-abd0-9def1f94e59e",
+              "label": "Uuid:9Ef9476E-3D71-4922-Abd0-9Def1F94E59E"
+            }
+          ]
+        },
+        {
+          "name": "meta/deprecatedID",
+          "label": "Meta/Deprecatedid",
+          "type": "text",
+          "options": [
+            {
+              "value": "uuid:224d3ec1-6610-4b93-a3f2-0a7a51fcbb60",
+              "label": "Uuid:224D3Ec1-6610-4B93-A3F2-0A7A51Fcbb60"
+            },
+            {
+              "value": "uuid:3cc18c25-b91c-479e-a293-1546b92a5a36",
+              "label": "Uuid:3Cc18C25-B91C-479E-A293-1546B92A5A36"
+            },
+            {
+              "value": "uuid:9ef9476e-3d71-4922-abd0-9def1f94e59e",
+              "label": "Uuid:9Ef9476E-3D71-4922-Abd0-9Def1F94E59E"
+            }
+          ]
+        },
+        {
+          "name": "formhub/uuid",
+          "label": "Formhub/Uuid",
+          "type": "text",
+          "options": [
+            {
+              "value": "332f7aef50dc478993d0504d8afdcf1a",
+              "label": "332F7Aef50Dc478993D0504D8Afdcf1A"
+            }
+          ]
+        },
+        {
+          "name": "is_valid",
+          "label": "Is Valid",
+          "type": "text",
+          "options": [
+            {
+              "value": "False",
+              "label": "False"
+            }
+          ]
+        },
+        {
+          "name": "validation_errors",
+          "label": "Validation Errors",
+          "type": "text",
+          "options": [
+            {
+              "value": "Invalid numeric value for beneficiary/age_group: '18-59'",
+              "label": "Invalid Numeric Value For Beneficiary/Age Group: '18-59'"
+            },
+            {
+              "value": "Invalid numeric value for info/enumerator_name: 'Ahmad Khan Ahmadi'",
+              "label": "Invalid Numeric Value For Info/Enumerator Name: 'Ahmad Khan Ahmadi'"
+            },
+            {
+              "value": "Invalid numeric value for info/enumerator_name: 'Asad Safi'",
+              "label": "Invalid Numeric Value For Info/Enumerator Name: 'Asad Safi'"
+            },
+            {
+              "value": "Invalid numeric value for info/enumerator_name: 'Noman'",
+              "label": "Invalid Numeric Value For Info/Enumerator Name: 'Noman'"
+            },
+            {
+              "value": "Invalid numeric value for info/village: 'Ahmad ali'",
+              "label": "Invalid Numeric Value For Info/Village: 'Ahmad Ali'"
+            },
+            {
+              "value": "Invalid numeric value for info/village: 'Village'",
+              "label": "Invalid Numeric Value For Info/Village: 'Village'"
+            },
+            {
+              "value": "Invalid numeric value for info/village: 'asdasd'",
+              "label": "Invalid Numeric Value For Info/Village: 'Asdasd'"
+            }
+          ]
+        },
+        {
+          "name": "feedback/complaint_category",
+          "label": "Feedback/Complaint Category",
+          "type": "text",
+          "options": [
+            {
+              "value": "quality",
+              "label": "Quality"
+            }
+          ]
+        },
+        {
+          "name": "feedback/complaint_description",
+          "label": "Feedback/Complaint Description",
+          "type": "text",
+          "options": [
+            {
+              "value": "adad",
+              "label": "Adad"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/forms/1/debug-schema?field_name=info/province",
+    "description": "Debug form 1 schema",
+    "status_code": 200,
+    "success": true,
+    "response": {
+      "form_id": 1,
+      "field_name": "info/province",
+      "schema_structure": {
+        "has_content": true,
+        "has_survey": true,
+        "has_choices": true,
+        "survey_fields_count": 41,
+        "choices_lists_count": 33
+      },
+      "field_info": {
+        "name": "province",
+        "type": "select_one",
+        "choice": null,
+        "select_from_list_name": "province"
+      },
+      "choice_list_info": null
+    }
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/forms/1/indicators",
+    "description": "Get form 1 indicators",
+    "status_code": 200,
+    "success": true,
+    "response": {
+      "form_id": 1,
+      "total_submissions": 3,
+      "valid_submissions": 0,
+      "invalid_submissions": 3,
+      "male_count": 0,
+      "female_count": 0,
+      "other_gender_count": 0,
+      "province_counts": {},
+      "time_trend_summary": {
+        "from": "2025-12-08T06:39:38",
+        "to": "2025-12-23T05:17:34",
+        "total": 3
+      }
+    }
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/submissions",
+    "description": "List all submissions",
+    "status_code": 200,
+    "success": true,
+    "response": [
+      {
+        "submission_data": {
+          "_id": 624660039,
+          "info/enumerator_id": "265",
+          "info/enumerator_name": "Asad Safi",
+          "info/organization": "ohw",
+          "info/survey_date": "2025-12-08",
+          "info/province": "p1",
+          "info/district": "p1_d1",
+          "info/village": "asdasd",
+          "info/gps_location": "34.516106 69.825835 0 0",
+          "beneficiary/hh_size": "652",
+          "beneficiary/head_of_household": "no",
+          "beneficiary/respondent_name": "Asad Safi",
+          "beneficiary/respondent_gender": "male",
+          "beneficiary/respondent_age": "22",
+          "beneficiary/age_group": "18-59",
+          "beneficiary/vulnerability": "chronic_illness disabled",
+          "beneficiary/displaced": "no",
+          "assistance/project": "cash",
+          "assistance/distribution_date": "2025-12-08",
+          "assistance/received_assistance": "yes",
+          "assistance/satisfaction_level": "4",
+          "assistance/comments": "asdasd",
+          "feedback/have_complaint": "no",
+          "feedback/complaint_id": "CMP-20251223-acf5bdd0-16a4-4090-85f3-5197b4529441",
+          "photos/photo_beneficiary": "freepik_assistant_1764755175444-11_9_16.png",
+          "photos/photo_distribution": "freepik_assistant_1764755175444-11_9_21.png",
+          "meta/instanceID": "uuid:d775f819-f61d-4904-9670-92a050d0c2c9",
+          "meta/rootUuid": "uuid:9ef9476e-3d71-4922-abd0-9def1f94e59e",
+          "meta/deprecatedID": "uuid:9ef9476e-3d71-4922-abd0-9def1f94e59e",
+          "formhub/uuid": "332f7aef50dc478993d0504d8afdcf1a",
+          "__version__": "vwg3tys6KMAj9ZtndCThMD",
+          "_xform_id_string": "arsYddWQmG4Hn2D8XMEdJw",
+          "_uuid": "d775f819-f61d-4904-9670-92a050d0c2c9",
+          "_attachments": [
+            {
+              "download_url": "https://kf.kobotoolbox.org/api/v2/assets/arsYddWQmG4Hn2D8XMEdJw/data/624660039/attachments/att47Va6uyDtSC5XDtiCnNUN/",
+              "mimetype": "image/png",
+              "filename": "samimsafi/attachments/332f7aef50dc478993d0504d8afdcf1a/d775f819-f61d-4904-9670-92a050d0c2c9/freepik_assistant_1764755175444-11_9_21.png",
+              "media_file_basename": "freepik_assistant_1764755175444-11_9_21.png",
+              "uid": "att47Va6uyDtSC5XDtiCnNUN",
+              "is_deleted": false,
+              "download_large_url": "https://kf.kobotoolbox.org/api/v2/assets/arsYddWQmG4Hn2D8XMEdJw/data/624660039/attachments/att47Va6uyDtSC5XDtiCnNUN/large/",
+              "download_medium_url": "https://kf.kobotoolbox.org/api/v2/assets/arsYddWQmG4Hn2D8XMEdJw/data/624660039/attachments/att47Va6uyDtSC5XDtiCnNUN/medium/",
+              "download_small_url": "https://kf.kobotoolbox.org/api/v2/assets/arsYddWQmG4Hn2D8XMEdJw/data/624660039/attachments/att47Va6uyDtSC5XDtiCnNUN/small/",
+              "question_xpath": "photos/photo_distribution"
+            },
+            {
+              "download_url": "https://kf.kobotoolbox.org/api/v2/assets/arsYddWQmG4Hn2D8XMEdJw/data/624660039/attachments/attNALnM9qavqWcAQULfAA4w/",
+              "mimetype": "image/png",
+              "filename": "samimsafi/attachments/332f7aef50dc478993d0504d8afdcf1a/d775f819-f61d-4904-9670-92a050d0c2c9/freepik_assistant_1764755175444-11_9_16.png",
+              "media_file_basename": "freepik_assistant_1764755175444-11_9_16.png",
+              "uid": "attNALnM9qavqWcAQULfAA4w",
+              "is_deleted": false,
+              "download_large_url": "https://kf.kobotoolbox.org/api/v2/assets/arsYddWQmG4Hn2D8XMEdJw/data/624660039/attachments/attNALnM9qavqWcAQULfAA4w/large/",
+              "download_medium_url": "https://kf.kobotoolbox.org/api/v2/assets/arsYddWQmG4Hn2D8XMEdJw/data/624660039/attachments/attNALnM9qavqWcAQULfAA4w/medium/",
+              "download_small_url": "https://kf.kobotoolbox.org/api/v2/assets/arsYddWQmG4Hn2D8XMEdJw/data/624660039/attachments/attNALnM9qavqWcAQULfAA4w/small/",
+              "question_xpath": "photos/photo_beneficiary"
+            }
+          ],
+          "_status": "submitted_via_web",
+          "_geolocation": [
+            34.516106,
+            69.825835
+          ],
+          "_submission_time": "2025-12-08T06:39:38",
+          "_tags": [],
+          "_notes": [],
+          "_validation_status": {
+            "timestamp": 1766298140,
+            "uid": "validation_status_approved",
+            "by_whom": "samimsafi",
+            "label": "Approved"
+          },
+          "_submitted_by": "samimsafi"
+        },
+        "id": 1,
+        "form_id": 1,
+        "kobo_submission_id": "624660039",
+        "submitted_at": "2025-12-08T06:39:38",
+        "location_lat": 34.516106,
+        "location_lng": 69.825835,
+        "location_name": null,
+        "created_at": "2025-12-23T06:00:19.272102"
+      },
+      {
+        "submission_data": {
+          "_id": 635089555,
+          "info/enumerator_id": "354",
+          "info/enumerator_name": "Ahmad Khan Ahmadi",
+          "info/organization": "partner1",
+          "info/survey_date": "2025-12-07",
+          "info/province": "p2",
+          "info/district": "p2_d1",
+          "info/village": "Ahmad ali",
+          "info/gps_location": "34.496399 69.200086 0 0",
+          "beneficiary/hh_size": "25",
+          "beneficiary/head_of_household": "yes",
+          "beneficiary/respondent_name": "Ahmad Ali",
+          "beneficiary/respondent_gender": "male",
+          "beneficiary/respondent_age": "25",
+          "beneficiary/age_group": "18-59",
+          "beneficiary/vulnerability": "chronic_illness disabled elderly child_headed",
+          "beneficiary/displaced": "yes",
+          "assistance/project": "food",
+          "assistance/distribution_date": "2025-12-08",
+          "assistance/received_assistance": "yes",
+          "assistance/satisfaction_level": "1",
+          "assistance/comments": "sadasdasd",
+          "feedback/have_complaint": "no",
+          "feedback/complaint_id": "CMP-20251221-da39681d-e59f-4492-acdf-65dde06572d0",
+          "photos/photo_beneficiary": "freepik_assistant_1764755175444-11_9_16.png",
+          "photos/photo_distribution": "freepik_assistant_1764755175444-11_9_21.png",
+          "meta/instanceID": "uuid:830fd688-d611-42ce-8726-28cfeabb1d8d",
+          "meta/rootUuid": "uuid:224d3ec1-6610-4b93-a3f2-0a7a51fcbb60",
+          "meta/deprecatedID": "uuid:224d3ec1-6610-4b93-a3f2-0a7a51fcbb60",
+          "formhub/uuid": "332f7aef50dc478993d0504d8afdcf1a",
+          "__version__": "vwg3tys6KMAj9ZtndCThMD",
+          "_xform_id_string": "arsYddWQmG4Hn2D8XMEdJw",
+          "_uuid": "830fd688-d611-42ce-8726-28cfeabb1d8d",
+          "_attachments": [
+            {
+              "download_url": "https://kf.kobotoolbox.org/api/v2/assets/arsYddWQmG4Hn2D8XMEdJw/data/635089555/attachments/attFWWt8Hx3scXHwXjMCQY9f/",
+              "mimetype": "image/png",
+              "filename": "samimsafi/attachments/332f7aef50dc478993d0504d8afdcf1a/830fd688-d611-42ce-8726-28cfeabb1d8d/freepik_assistant_1764755175444-11_9_16.png",
+              "media_file_basename": "freepik_assistant_1764755175444-11_9_16.png",
+              "uid": "attFWWt8Hx3scXHwXjMCQY9f",
+              "is_deleted": false,
+              "download_large_url": "https://kf.kobotoolbox.org/api/v2/assets/arsYddWQmG4Hn2D8XMEdJw/data/635089555/attachments/attFWWt8Hx3scXHwXjMCQY9f/large/",
+              "download_medium_url": "https://kf.kobotoolbox.org/api/v2/assets/arsYddWQmG4Hn2D8XMEdJw/data/635089555/attachments/attFWWt8Hx3scXHwXjMCQY9f/medium/",
+              "download_small_url": "https://kf.kobotoolbox.org/api/v2/assets/arsYddWQmG4Hn2D8XMEdJw/data/635089555/attachments/attFWWt8Hx3scXHwXjMCQY9f/small/",
+              "question_xpath": "photos/photo_beneficiary"
+            },
+            {
+              "download_url": "https://kf.kobotoolbox.org/api/v2/assets/arsYddWQmG4Hn2D8XMEdJw/data/635089555/attachments/attdEzdSXecyJ27qBH6kypx7/",
+              "mimetype": "image/png",
+              "filename": "samimsafi/attachments/332f7aef50dc478993d0504d8afdcf1a/830fd688-d611-42ce-8726-28cfeabb1d8d/freepik_assistant_1764755175444-11_9_21.png",
+              "media_file_basename": "freepik_assistant_1764755175444-11_9_21.png",
+              "uid": "attdEzdSXecyJ27qBH6kypx7",
+              "is_deleted": false,
+              "download_large_url": "https://kf.kobotoolbox.org/api/v2/assets/arsYddWQmG4Hn2D8XMEdJw/data/635089555/attachments/attdEzdSXecyJ27qBH6kypx7/large/",
+              "download_medium_url": "https://kf.kobotoolbox.org/api/v2/assets/arsYddWQmG4Hn2D8XMEdJw/data/635089555/attachments/attdEzdSXecyJ27qBH6kypx7/medium/",
+              "download_small_url": "https://kf.kobotoolbox.org/api/v2/assets/arsYddWQmG4Hn2D8XMEdJw/data/635089555/attachments/attdEzdSXecyJ27qBH6kypx7/small/",
+              "question_xpath": "photos/photo_distribution"
+            }
+          ],
+          "_status": "submitted_via_web",
+          "_geolocation": [
+            34.496399,
+            69.200086
+          ],
+          "_submission_time": "2025-12-21T06:22:28",
+          "_tags": [],
+          "_notes": [],
+          "_validation_status": {
+            "timestamp": 1766467036,
+            "uid": "validation_status_approved",
+            "by_whom": "samimsafi",
+            "label": "Approved"
+          },
+          "_submitted_by": "samimsafi"
+        },
+        "id": 2,
+        "form_id": 1,
+        "kobo_submission_id": "635089555",
+        "submitted_at": "2025-12-21T06:22:28",
+        "location_lat": 34.496399,
+        "location_lng": 69.200086,
+        "location_name": null,
+        "created_at": "2025-12-23T06:00:19.272102"
+      },
+      {
+        "submission_data": {
+          "_id": 636349794,
+          "info/enumerator_id": "65",
+          "info/enumerator_name": "Noman",
+          "info/organization": "partner1",
+          "info/survey_date": "2025-12-08",
+          "info/province": "p3",
+          "info/district": "p3_d1",
+          "info/village": "Village",
+          "info/gps_location": "34.480949 69.131318 0 0",
+          "beneficiary/hh_size": "20",
+          "beneficiary/head_of_household": "yes",
+          "beneficiary/respondent_name": "Noman",
+          "beneficiary/respondent_gender": "female",
+          "beneficiary/respondent_age": "25",
+          "beneficiary/age_group": "18-59",
+          "beneficiary/vulnerability": "chronic_illness disabled elderly",
+          "beneficiary/displaced": "yes",
+          "assistance/project": "nfi",
+          "assistance/distribution_date": "2025-12-08",
+          "assistance/received_assistance": "no",
+          "assistance/comments": "asdasd",
+          "feedback/have_complaint": "yes",
+          "feedback/complaint_category": "quality",
+          "feedback/complaint_description": "adad",
+          "feedback/complaint_id": "CMP-20251223-b0ada758-b117-4621-8a90-8918521fe122",
+          "photos/photo_beneficiary": "freepik_assistant_1764755175444-11_9_16.png",
+          "photos/photo_distribution": "freepik_assistant_1764755175444-11_9_21.png",
+          "meta/instanceID": "uuid:ee48b9b7-8252-4c42-88ef-a7031e220267",
+          "meta/rootUuid": "uuid:3cc18c25-b91c-479e-a293-1546b92a5a36",
+          "meta/deprecatedID": "uuid:3cc18c25-b91c-479e-a293-1546b92a5a36",
+          "formhub/uuid": "332f7aef50dc478993d0504d8afdcf1a",
+          "__version__": "vwg3tys6KMAj9ZtndCThMD",
+          "_xform_id_string": "arsYddWQmG4Hn2D8XMEdJw",
+          "_uuid": "ee48b9b7-8252-4c42-88ef-a7031e220267",
+          "_attachments": [
+            {
+              "download_url": "https://kf.kobotoolbox.org/api/v2/assets/arsYddWQmG4Hn2D8XMEdJw/data/636349794/attachments/attMSo3eMBNWJZmC7ECkYnWu/",
+              "mimetype": "image/png",
+              "filename": "samimsafi/attachments/332f7aef50dc478993d0504d8afdcf1a/ee48b9b7-8252-4c42-88ef-a7031e220267/freepik_assistant_1764755175444-11_9_16.png",
+              "media_file_basename": "freepik_assistant_1764755175444-11_9_16.png",
+              "uid": "attMSo3eMBNWJZmC7ECkYnWu",
+              "is_deleted": false,
+              "download_large_url": "https://kf.kobotoolbox.org/api/v2/assets/arsYddWQmG4Hn2D8XMEdJw/data/636349794/attachments/attMSo3eMBNWJZmC7ECkYnWu/large/",
+              "download_medium_url": "https://kf.kobotoolbox.org/api/v2/assets/arsYddWQmG4Hn2D8XMEdJw/data/636349794/attachments/attMSo3eMBNWJZmC7ECkYnWu/medium/",
+              "download_small_url": "https://kf.kobotoolbox.org/api/v2/assets/arsYddWQmG4Hn2D8XMEdJw/data/636349794/attachments/attMSo3eMBNWJZmC7ECkYnWu/small/",
+              "question_xpath": "photos/photo_beneficiary"
+            },
+            {
+              "download_url": "https://kf.kobotoolbox.org/api/v2/assets/arsYddWQmG4Hn2D8XMEdJw/data/636349794/attachments/attruxPXeEujTkaLWiMYgLbR/",
+              "mimetype": "image/png",
+              "filename": "samimsafi/attachments/332f7aef50dc478993d0504d8afdcf1a/ee48b9b7-8252-4c42-88ef-a7031e220267/freepik_assistant_1764755175444-11_9_21.png",
+              "media_file_basename": "freepik_assistant_1764755175444-11_9_21.png",
+              "uid": "attruxPXeEujTkaLWiMYgLbR",
+              "is_deleted": false,
+              "download_large_url": "https://kf.kobotoolbox.org/api/v2/assets/arsYddWQmG4Hn2D8XMEdJw/data/636349794/attachments/attruxPXeEujTkaLWiMYgLbR/large/",
+              "download_medium_url": "https://kf.kobotoolbox.org/api/v2/assets/arsYddWQmG4Hn2D8XMEdJw/data/636349794/attachments/attruxPXeEujTkaLWiMYgLbR/medium/",
+              "download_small_url": "https://kf.kobotoolbox.org/api/v2/assets/arsYddWQmG4Hn2D8XMEdJw/data/636349794/attachments/attruxPXeEujTkaLWiMYgLbR/small/",
+              "question_xpath": "photos/photo_distribution"
+            }
+          ],
+          "_status": "submitted_via_web",
+          "_geolocation": [
+            34.480949,
+            69.131318
+          ],
+          "_submission_time": "2025-12-23T05:17:34",
+          "_tags": [],
+          "_notes": [],
+          "_validation_status": {},
+          "_submitted_by": "samimsafi"
+        },
+        "id": 3,
+        "form_id": 1,
+        "kobo_submission_id": "636349794",
+        "submitted_at": "2025-12-23T05:17:34",
+        "location_lat": 34.480949,
+        "location_lng": 69.131318,
+        "location_name": null,
+        "created_at": "2025-12-23T06:00:19.272102"
+      }
+    ]
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/submissions",
+    "description": "List submissions for form 1",
+    "status_code": 200,
+    "success": true,
+    "response": [
+      {
+        "submission_data": {
+          "_id": 624660039,
+          "info/enumerator_id": "265",
+          "info/enumerator_name": "Asad Safi",
+          "info/organization": "ohw",
+          "info/survey_date": "2025-12-08",
+          "info/province": "p1",
+          "info/district": "p1_d1",
+          "info/village": "asdasd",
+          "info/gps_location": "34.516106 69.825835 0 0",
+          "beneficiary/hh_size": "652",
+          "beneficiary/head_of_household": "no",
+          "beneficiary/respondent_name": "Asad Safi",
+          "beneficiary/respondent_gender": "male",
+          "beneficiary/respondent_age": "22",
+          "beneficiary/age_group": "18-59",
+          "beneficiary/vulnerability": "chronic_illness disabled",
+          "beneficiary/displaced": "no",
+          "assistance/project": "cash",
+          "assistance/distribution_date": "2025-12-08",
+          "assistance/received_assistance": "yes",
+          "assistance/satisfaction_level": "4",
+          "assistance/comments": "asdasd",
+          "feedback/have_complaint": "no",
+          "feedback/complaint_id": "CMP-20251223-acf5bdd0-16a4-4090-85f3-5197b4529441",
+          "photos/photo_beneficiary": "freepik_assistant_1764755175444-11_9_16.png",
+          "photos/photo_distribution": "freepik_assistant_1764755175444-11_9_21.png",
+          "meta/instanceID": "uuid:d775f819-f61d-4904-9670-92a050d0c2c9",
+          "meta/rootUuid": "uuid:9ef9476e-3d71-4922-abd0-9def1f94e59e",
+          "meta/deprecatedID": "uuid:9ef9476e-3d71-4922-abd0-9def1f94e59e",
+          "formhub/uuid": "332f7aef50dc478993d0504d8afdcf1a",
+          "__version__": "vwg3tys6KMAj9ZtndCThMD",
+          "_xform_id_string": "arsYddWQmG4Hn2D8XMEdJw",
+          "_uuid": "d775f819-f61d-4904-9670-92a050d0c2c9",
+          "_attachments": [
+            {
+              "download_url": "https://kf.kobotoolbox.org/api/v2/assets/arsYddWQmG4Hn2D8XMEdJw/data/624660039/attachments/att47Va6uyDtSC5XDtiCnNUN/",
+              "mimetype": "image/png",
+              "filename": "samimsafi/attachments/332f7aef50dc478993d0504d8afdcf1a/d775f819-f61d-4904-9670-92a050d0c2c9/freepik_assistant_1764755175444-11_9_21.png",
+              "media_file_basename": "freepik_assistant_1764755175444-11_9_21.png",
+              "uid": "att47Va6uyDtSC5XDtiCnNUN",
+              "is_deleted": false,
+              "download_large_url": "https://kf.kobotoolbox.org/api/v2/assets/arsYddWQmG4Hn2D8XMEdJw/data/624660039/attachments/att47Va6uyDtSC5XDtiCnNUN/large/",
+              "download_medium_url": "https://kf.kobotoolbox.org/api/v2/assets/arsYddWQmG4Hn2D8XMEdJw/data/624660039/attachments/att47Va6uyDtSC5XDtiCnNUN/medium/",
+              "download_small_url": "https://kf.kobotoolbox.org/api/v2/assets/arsYddWQmG4Hn2D8XMEdJw/data/624660039/attachments/att47Va6uyDtSC5XDtiCnNUN/small/",
+              "question_xpath": "photos/photo_distribution"
+            },
+            {
+              "download_url": "https://kf.kobotoolbox.org/api/v2/assets/arsYddWQmG4Hn2D8XMEdJw/data/624660039/attachments/attNALnM9qavqWcAQULfAA4w/",
+              "mimetype": "image/png",
+              "filename": "samimsafi/attachments/332f7aef50dc478993d0504d8afdcf1a/d775f819-f61d-4904-9670-92a050d0c2c9/freepik_assistant_1764755175444-11_9_16.png",
+              "media_file_basename": "freepik_assistant_1764755175444-11_9_16.png",
+              "uid": "attNALnM9qavqWcAQULfAA4w",
+              "is_deleted": false,
+              "download_large_url": "https://kf.kobotoolbox.org/api/v2/assets/arsYddWQmG4Hn2D8XMEdJw/data/624660039/attachments/attNALnM9qavqWcAQULfAA4w/large/",
+              "download_medium_url": "https://kf.kobotoolbox.org/api/v2/assets/arsYddWQmG4Hn2D8XMEdJw/data/624660039/attachments/attNALnM9qavqWcAQULfAA4w/medium/",
+              "download_small_url": "https://kf.kobotoolbox.org/api/v2/assets/arsYddWQmG4Hn2D8XMEdJw/data/624660039/attachments/attNALnM9qavqWcAQULfAA4w/small/",
+              "question_xpath": "photos/photo_beneficiary"
+            }
+          ],
+          "_status": "submitted_via_web",
+          "_geolocation": [
+            34.516106,
+            69.825835
+          ],
+          "_submission_time": "2025-12-08T06:39:38",
+          "_tags": [],
+          "_notes": [],
+          "_validation_status": {
+            "timestamp": 1766298140,
+            "uid": "validation_status_approved",
+            "by_whom": "samimsafi",
+            "label": "Approved"
+          },
+          "_submitted_by": "samimsafi"
+        },
+        "id": 1,
+        "form_id": 1,
+        "kobo_submission_id": "624660039",
+        "submitted_at": "2025-12-08T06:39:38",
+        "location_lat": 34.516106,
+        "location_lng": 69.825835,
+        "location_name": null,
+        "created_at": "2025-12-23T06:00:19.272102"
+      },
+      {
+        "submission_data": {
+          "_id": 635089555,
+          "info/enumerator_id": "354",
+          "info/enumerator_name": "Ahmad Khan Ahmadi",
+          "info/organization": "partner1",
+          "info/survey_date": "2025-12-07",
+          "info/province": "p2",
+          "info/district": "p2_d1",
+          "info/village": "Ahmad ali",
+          "info/gps_location": "34.496399 69.200086 0 0",
+          "beneficiary/hh_size": "25",
+          "beneficiary/head_of_household": "yes",
+          "beneficiary/respondent_name": "Ahmad Ali",
+          "beneficiary/respondent_gender": "male",
+          "beneficiary/respondent_age": "25",
+          "beneficiary/age_group": "18-59",
+          "beneficiary/vulnerability": "chronic_illness disabled elderly child_headed",
+          "beneficiary/displaced": "yes",
+          "assistance/project": "food",
+          "assistance/distribution_date": "2025-12-08",
+          "assistance/received_assistance": "yes",
+          "assistance/satisfaction_level": "1",
+          "assistance/comments": "sadasdasd",
+          "feedback/have_complaint": "no",
+          "feedback/complaint_id": "CMP-20251221-da39681d-e59f-4492-acdf-65dde06572d0",
+          "photos/photo_beneficiary": "freepik_assistant_1764755175444-11_9_16.png",
+          "photos/photo_distribution": "freepik_assistant_1764755175444-11_9_21.png",
+          "meta/instanceID": "uuid:830fd688-d611-42ce-8726-28cfeabb1d8d",
+          "meta/rootUuid": "uuid:224d3ec1-6610-4b93-a3f2-0a7a51fcbb60",
+          "meta/deprecatedID": "uuid:224d3ec1-6610-4b93-a3f2-0a7a51fcbb60",
+          "formhub/uuid": "332f7aef50dc478993d0504d8afdcf1a",
+          "__version__": "vwg3tys6KMAj9ZtndCThMD",
+          "_xform_id_string": "arsYddWQmG4Hn2D8XMEdJw",
+          "_uuid": "830fd688-d611-42ce-8726-28cfeabb1d8d",
+          "_attachments": [
+            {
+              "download_url": "https://kf.kobotoolbox.org/api/v2/assets/arsYddWQmG4Hn2D8XMEdJw/data/635089555/attachments/attFWWt8Hx3scXHwXjMCQY9f/",
+              "mimetype": "image/png",
+              "filename": "samimsafi/attachments/332f7aef50dc478993d0504d8afdcf1a/830fd688-d611-42ce-8726-28cfeabb1d8d/freepik_assistant_1764755175444-11_9_16.png",
+              "media_file_basename": "freepik_assistant_1764755175444-11_9_16.png",
+              "uid": "attFWWt8Hx3scXHwXjMCQY9f",
+              "is_deleted": false,
+              "download_large_url": "https://kf.kobotoolbox.org/api/v2/assets/arsYddWQmG4Hn2D8XMEdJw/data/635089555/attachments/attFWWt8Hx3scXHwXjMCQY9f/large/",
+              "download_medium_url": "https://kf.kobotoolbox.org/api/v2/assets/arsYddWQmG4Hn2D8XMEdJw/data/635089555/attachments/attFWWt8Hx3scXHwXjMCQY9f/medium/",
+              "download_small_url": "https://kf.kobotoolbox.org/api/v2/assets/arsYddWQmG4Hn2D8XMEdJw/data/635089555/attachments/attFWWt8Hx3scXHwXjMCQY9f/small/",
+              "question_xpath": "photos/photo_beneficiary"
+            },
+            {
+              "download_url": "https://kf.kobotoolbox.org/api/v2/assets/arsYddWQmG4Hn2D8XMEdJw/data/635089555/attachments/attdEzdSXecyJ27qBH6kypx7/",
+              "mimetype": "image/png",
+              "filename": "samimsafi/attachments/332f7aef50dc478993d0504d8afdcf1a/830fd688-d611-42ce-8726-28cfeabb1d8d/freepik_assistant_1764755175444-11_9_21.png",
+              "media_file_basename": "freepik_assistant_1764755175444-11_9_21.png",
+              "uid": "attdEzdSXecyJ27qBH6kypx7",
+              "is_deleted": false,
+              "download_large_url": "https://kf.kobotoolbox.org/api/v2/assets/arsYddWQmG4Hn2D8XMEdJw/data/635089555/attachments/attdEzdSXecyJ27qBH6kypx7/large/",
+              "download_medium_url": "https://kf.kobotoolbox.org/api/v2/assets/arsYddWQmG4Hn2D8XMEdJw/data/635089555/attachments/attdEzdSXecyJ27qBH6kypx7/medium/",
+              "download_small_url": "https://kf.kobotoolbox.org/api/v2/assets/arsYddWQmG4Hn2D8XMEdJw/data/635089555/attachments/attdEzdSXecyJ27qBH6kypx7/small/",
+              "question_xpath": "photos/photo_distribution"
+            }
+          ],
+          "_status": "submitted_via_web",
+          "_geolocation": [
+            34.496399,
+            69.200086
+          ],
+          "_submission_time": "2025-12-21T06:22:28",
+          "_tags": [],
+          "_notes": [],
+          "_validation_status": {
+            "timestamp": 1766467036,
+            "uid": "validation_status_approved",
+            "by_whom": "samimsafi",
+            "label": "Approved"
+          },
+          "_submitted_by": "samimsafi"
+        },
+        "id": 2,
+        "form_id": 1,
+        "kobo_submission_id": "635089555",
+        "submitted_at": "2025-12-21T06:22:28",
+        "location_lat": 34.496399,
+        "location_lng": 69.200086,
+        "location_name": null,
+        "created_at": "2025-12-23T06:00:19.272102"
+      },
+      {
+        "submission_data": {
+          "_id": 636349794,
+          "info/enumerator_id": "65",
+          "info/enumerator_name": "Noman",
+          "info/organization": "partner1",
+          "info/survey_date": "2025-12-08",
+          "info/province": "p3",
+          "info/district": "p3_d1",
+          "info/village": "Village",
+          "info/gps_location": "34.480949 69.131318 0 0",
+          "beneficiary/hh_size": "20",
+          "beneficiary/head_of_household": "yes",
+          "beneficiary/respondent_name": "Noman",
+          "beneficiary/respondent_gender": "female",
+          "beneficiary/respondent_age": "25",
+          "beneficiary/age_group": "18-59",
+          "beneficiary/vulnerability": "chronic_illness disabled elderly",
+          "beneficiary/displaced": "yes",
+          "assistance/project": "nfi",
+          "assistance/distribution_date": "2025-12-08",
+          "assistance/received_assistance": "no",
+          "assistance/comments": "asdasd",
+          "feedback/have_complaint": "yes",
+          "feedback/complaint_category": "quality",
+          "feedback/complaint_description": "adad",
+          "feedback/complaint_id": "CMP-20251223-b0ada758-b117-4621-8a90-8918521fe122",
+          "photos/photo_beneficiary": "freepik_assistant_1764755175444-11_9_16.png",
+          "photos/photo_distribution": "freepik_assistant_1764755175444-11_9_21.png",
+          "meta/instanceID": "uuid:ee48b9b7-8252-4c42-88ef-a7031e220267",
+          "meta/rootUuid": "uuid:3cc18c25-b91c-479e-a293-1546b92a5a36",
+          "meta/deprecatedID": "uuid:3cc18c25-b91c-479e-a293-1546b92a5a36",
+          "formhub/uuid": "332f7aef50dc478993d0504d8afdcf1a",
+          "__version__": "vwg3tys6KMAj9ZtndCThMD",
+          "_xform_id_string": "arsYddWQmG4Hn2D8XMEdJw",
+          "_uuid": "ee48b9b7-8252-4c42-88ef-a7031e220267",
+          "_attachments": [
+            {
+              "download_url": "https://kf.kobotoolbox.org/api/v2/assets/arsYddWQmG4Hn2D8XMEdJw/data/636349794/attachments/attMSo3eMBNWJZmC7ECkYnWu/",
+              "mimetype": "image/png",
+              "filename": "samimsafi/attachments/332f7aef50dc478993d0504d8afdcf1a/ee48b9b7-8252-4c42-88ef-a7031e220267/freepik_assistant_1764755175444-11_9_16.png",
+              "media_file_basename": "freepik_assistant_1764755175444-11_9_16.png",
+              "uid": "attMSo3eMBNWJZmC7ECkYnWu",
+              "is_deleted": false,
+              "download_large_url": "https://kf.kobotoolbox.org/api/v2/assets/arsYddWQmG4Hn2D8XMEdJw/data/636349794/attachments/attMSo3eMBNWJZmC7ECkYnWu/large/",
+              "download_medium_url": "https://kf.kobotoolbox.org/api/v2/assets/arsYddWQmG4Hn2D8XMEdJw/data/636349794/attachments/attMSo3eMBNWJZmC7ECkYnWu/medium/",
+              "download_small_url": "https://kf.kobotoolbox.org/api/v2/assets/arsYddWQmG4Hn2D8XMEdJw/data/636349794/attachments/attMSo3eMBNWJZmC7ECkYnWu/small/",
+              "question_xpath": "photos/photo_beneficiary"
+            },
+            {
+              "download_url": "https://kf.kobotoolbox.org/api/v2/assets/arsYddWQmG4Hn2D8XMEdJw/data/636349794/attachments/attruxPXeEujTkaLWiMYgLbR/",
+              "mimetype": "image/png",
+              "filename": "samimsafi/attachments/332f7aef50dc478993d0504d8afdcf1a/ee48b9b7-8252-4c42-88ef-a7031e220267/freepik_assistant_1764755175444-11_9_21.png",
+              "media_file_basename": "freepik_assistant_1764755175444-11_9_21.png",
+              "uid": "attruxPXeEujTkaLWiMYgLbR",
+              "is_deleted": false,
+              "download_large_url": "https://kf.kobotoolbox.org/api/v2/assets/arsYddWQmG4Hn2D8XMEdJw/data/636349794/attachments/attruxPXeEujTkaLWiMYgLbR/large/",
+              "download_medium_url": "https://kf.kobotoolbox.org/api/v2/assets/arsYddWQmG4Hn2D8XMEdJw/data/636349794/attachments/attruxPXeEujTkaLWiMYgLbR/medium/",
+              "download_small_url": "https://kf.kobotoolbox.org/api/v2/assets/arsYddWQmG4Hn2D8XMEdJw/data/636349794/attachments/attruxPXeEujTkaLWiMYgLbR/small/",
+              "question_xpath": "photos/photo_distribution"
+            }
+          ],
+          "_status": "submitted_via_web",
+          "_geolocation": [
+            34.480949,
+            69.131318
+          ],
+          "_submission_time": "2025-12-23T05:17:34",
+          "_tags": [],
+          "_notes": [],
+          "_validation_status": {},
+          "_submitted_by": "samimsafi"
+        },
+        "id": 3,
+        "form_id": 1,
+        "kobo_submission_id": "636349794",
+        "submitted_at": "2025-12-23T05:17:34",
+        "location_lat": 34.480949,
+        "location_lng": 69.131318,
+        "location_name": null,
+        "created_at": "2025-12-23T06:00:19.272102"
+      }
+    ]
+  },
+  {
+    "method": "GET",
+    "endpoint": "/form/1/submissions",
+    "description": "Get form 1 submissions (public)",
+    "status_code": 200,
+    "success": true,
+    "response": [
+      {
+        "submission_data": {
+          "_id": 624660039,
+          "info/enumerator_id": "265",
+          "info/enumerator_name": "Asad Safi",
+          "info/organization": "ohw",
+          "info/survey_date": "2025-12-08",
+          "info/province": "p1",
+          "info/district": "p1_d1",
+          "info/village": "asdasd",
+          "info/gps_location": "34.516106 69.825835 0 0",
+          "beneficiary/hh_size": "652",
+          "beneficiary/head_of_household": "no",
+          "beneficiary/respondent_name": "Asad Safi",
+          "beneficiary/respondent_gender": "male",
+          "beneficiary/respondent_age": "22",
+          "beneficiary/age_group": "18-59",
+          "beneficiary/vulnerability": "chronic_illness disabled",
+          "beneficiary/displaced": "no",
+          "assistance/project": "cash",
+          "assistance/distribution_date": "2025-12-08",
+          "assistance/received_assistance": "yes",
+          "assistance/satisfaction_level": "4",
+          "assistance/comments": "asdasd",
+          "feedback/have_complaint": "no",
+          "feedback/complaint_id": "CMP-20251223-acf5bdd0-16a4-4090-85f3-5197b4529441",
+          "photos/photo_beneficiary": "freepik_assistant_1764755175444-11_9_16.png",
+          "photos/photo_distribution": "freepik_assistant_1764755175444-11_9_21.png",
+          "meta/instanceID": "uuid:d775f819-f61d-4904-9670-92a050d0c2c9",
+          "meta/rootUuid": "uuid:9ef9476e-3d71-4922-abd0-9def1f94e59e",
+          "meta/deprecatedID": "uuid:9ef9476e-3d71-4922-abd0-9def1f94e59e",
+          "formhub/uuid": "332f7aef50dc478993d0504d8afdcf1a",
+          "__version__": "vwg3tys6KMAj9ZtndCThMD",
+          "_xform_id_string": "arsYddWQmG4Hn2D8XMEdJw",
+          "_uuid": "d775f819-f61d-4904-9670-92a050d0c2c9",
+          "_attachments": [
+            {
+              "download_url": "https://kf.kobotoolbox.org/api/v2/assets/arsYddWQmG4Hn2D8XMEdJw/data/624660039/attachments/att47Va6uyDtSC5XDtiCnNUN/",
+              "mimetype": "image/png",
+              "filename": "samimsafi/attachments/332f7aef50dc478993d0504d8afdcf1a/d775f819-f61d-4904-9670-92a050d0c2c9/freepik_assistant_1764755175444-11_9_21.png",
+              "media_file_basename": "freepik_assistant_1764755175444-11_9_21.png",
+              "uid": "att47Va6uyDtSC5XDtiCnNUN",
+              "is_deleted": false,
+              "download_large_url": "https://kf.kobotoolbox.org/api/v2/assets/arsYddWQmG4Hn2D8XMEdJw/data/624660039/attachments/att47Va6uyDtSC5XDtiCnNUN/large/",
+              "download_medium_url": "https://kf.kobotoolbox.org/api/v2/assets/arsYddWQmG4Hn2D8XMEdJw/data/624660039/attachments/att47Va6uyDtSC5XDtiCnNUN/medium/",
+              "download_small_url": "https://kf.kobotoolbox.org/api/v2/assets/arsYddWQmG4Hn2D8XMEdJw/data/624660039/attachments/att47Va6uyDtSC5XDtiCnNUN/small/",
+              "question_xpath": "photos/photo_distribution"
+            },
+            {
+              "download_url": "https://kf.kobotoolbox.org/api/v2/assets/arsYddWQmG4Hn2D8XMEdJw/data/624660039/attachments/attNALnM9qavqWcAQULfAA4w/",
+              "mimetype": "image/png",
+              "filename": "samimsafi/attachments/332f7aef50dc478993d0504d8afdcf1a/d775f819-f61d-4904-9670-92a050d0c2c9/freepik_assistant_1764755175444-11_9_16.png",
+              "media_file_basename": "freepik_assistant_1764755175444-11_9_16.png",
+              "uid": "attNALnM9qavqWcAQULfAA4w",
+              "is_deleted": false,
+              "download_large_url": "https://kf.kobotoolbox.org/api/v2/assets/arsYddWQmG4Hn2D8XMEdJw/data/624660039/attachments/attNALnM9qavqWcAQULfAA4w/large/",
+              "download_medium_url": "https://kf.kobotoolbox.org/api/v2/assets/arsYddWQmG4Hn2D8XMEdJw/data/624660039/attachments/attNALnM9qavqWcAQULfAA4w/medium/",
+              "download_small_url": "https://kf.kobotoolbox.org/api/v2/assets/arsYddWQmG4Hn2D8XMEdJw/data/624660039/attachments/attNALnM9qavqWcAQULfAA4w/small/",
+              "question_xpath": "photos/photo_beneficiary"
+            }
+          ],
+          "_status": "submitted_via_web",
+          "_geolocation": [
+            34.516106,
+            69.825835
+          ],
+          "_submission_time": "2025-12-08T06:39:38",
+          "_tags": [],
+          "_notes": [],
+          "_validation_status": {
+            "timestamp": 1766298140,
+            "uid": "validation_status_approved",
+            "by_whom": "samimsafi",
+            "label": "Approved"
+          },
+          "_submitted_by": "samimsafi"
+        },
+        "id": 1,
+        "form_id": 1,
+        "kobo_submission_id": "624660039",
+        "submitted_at": "2025-12-08T06:39:38",
+        "location_lat": 34.516106,
+        "location_lng": 69.825835,
+        "location_name": null,
+        "created_at": "2025-12-23T06:00:19.272102"
+      },
+      {
+        "submission_data": {
+          "_id": 635089555,
+          "info/enumerator_id": "354",
+          "info/enumerator_name": "Ahmad Khan Ahmadi",
+          "info/organization": "partner1",
+          "info/survey_date": "2025-12-07",
+          "info/province": "p2",
+          "info/district": "p2_d1",
+          "info/village": "Ahmad ali",
+          "info/gps_location": "34.496399 69.200086 0 0",
+          "beneficiary/hh_size": "25",
+          "beneficiary/head_of_household": "yes",
+          "beneficiary/respondent_name": "Ahmad Ali",
+          "beneficiary/respondent_gender": "male",
+          "beneficiary/respondent_age": "25",
+          "beneficiary/age_group": "18-59",
+          "beneficiary/vulnerability": "chronic_illness disabled elderly child_headed",
+          "beneficiary/displaced": "yes",
+          "assistance/project": "food",
+          "assistance/distribution_date": "2025-12-08",
+          "assistance/received_assistance": "yes",
+          "assistance/satisfaction_level": "1",
+          "assistance/comments": "sadasdasd",
+          "feedback/have_complaint": "no",
+          "feedback/complaint_id": "CMP-20251221-da39681d-e59f-4492-acdf-65dde06572d0",
+          "photos/photo_beneficiary": "freepik_assistant_1764755175444-11_9_16.png",
+          "photos/photo_distribution": "freepik_assistant_1764755175444-11_9_21.png",
+          "meta/instanceID": "uuid:830fd688-d611-42ce-8726-28cfeabb1d8d",
+          "meta/rootUuid": "uuid:224d3ec1-6610-4b93-a3f2-0a7a51fcbb60",
+          "meta/deprecatedID": "uuid:224d3ec1-6610-4b93-a3f2-0a7a51fcbb60",
+          "formhub/uuid": "332f7aef50dc478993d0504d8afdcf1a",
+          "__version__": "vwg3tys6KMAj9ZtndCThMD",
+          "_xform_id_string": "arsYddWQmG4Hn2D8XMEdJw",
+          "_uuid": "830fd688-d611-42ce-8726-28cfeabb1d8d",
+          "_attachments": [
+            {
+              "download_url": "https://kf.kobotoolbox.org/api/v2/assets/arsYddWQmG4Hn2D8XMEdJw/data/635089555/attachments/attFWWt8Hx3scXHwXjMCQY9f/",
+              "mimetype": "image/png",
+              "filename": "samimsafi/attachments/332f7aef50dc478993d0504d8afdcf1a/830fd688-d611-42ce-8726-28cfeabb1d8d/freepik_assistant_1764755175444-11_9_16.png",
+              "media_file_basename": "freepik_assistant_1764755175444-11_9_16.png",
+              "uid": "attFWWt8Hx3scXHwXjMCQY9f",
+              "is_deleted": false,
+              "download_large_url": "https://kf.kobotoolbox.org/api/v2/assets/arsYddWQmG4Hn2D8XMEdJw/data/635089555/attachments/attFWWt8Hx3scXHwXjMCQY9f/large/",
+              "download_medium_url": "https://kf.kobotoolbox.org/api/v2/assets/arsYddWQmG4Hn2D8XMEdJw/data/635089555/attachments/attFWWt8Hx3scXHwXjMCQY9f/medium/",
+              "download_small_url": "https://kf.kobotoolbox.org/api/v2/assets/arsYddWQmG4Hn2D8XMEdJw/data/635089555/attachments/attFWWt8Hx3scXHwXjMCQY9f/small/",
+              "question_xpath": "photos/photo_beneficiary"
+            },
+            {
+              "download_url": "https://kf.kobotoolbox.org/api/v2/assets/arsYddWQmG4Hn2D8XMEdJw/data/635089555/attachments/attdEzdSXecyJ27qBH6kypx7/",
+              "mimetype": "image/png",
+              "filename": "samimsafi/attachments/332f7aef50dc478993d0504d8afdcf1a/830fd688-d611-42ce-8726-28cfeabb1d8d/freepik_assistant_1764755175444-11_9_21.png",
+              "media_file_basename": "freepik_assistant_1764755175444-11_9_21.png",
+              "uid": "attdEzdSXecyJ27qBH6kypx7",
+              "is_deleted": false,
+              "download_large_url": "https://kf.kobotoolbox.org/api/v2/assets/arsYddWQmG4Hn2D8XMEdJw/data/635089555/attachments/attdEzdSXecyJ27qBH6kypx7/large/",
+              "download_medium_url": "https://kf.kobotoolbox.org/api/v2/assets/arsYddWQmG4Hn2D8XMEdJw/data/635089555/attachments/attdEzdSXecyJ27qBH6kypx7/medium/",
+              "download_small_url": "https://kf.kobotoolbox.org/api/v2/assets/arsYddWQmG4Hn2D8XMEdJw/data/635089555/attachments/attdEzdSXecyJ27qBH6kypx7/small/",
+              "question_xpath": "photos/photo_distribution"
+            }
+          ],
+          "_status": "submitted_via_web",
+          "_geolocation": [
+            34.496399,
+            69.200086
+          ],
+          "_submission_time": "2025-12-21T06:22:28",
+          "_tags": [],
+          "_notes": [],
+          "_validation_status": {
+            "timestamp": 1766467036,
+            "uid": "validation_status_approved",
+            "by_whom": "samimsafi",
+            "label": "Approved"
+          },
+          "_submitted_by": "samimsafi"
+        },
+        "id": 2,
+        "form_id": 1,
+        "kobo_submission_id": "635089555",
+        "submitted_at": "2025-12-21T06:22:28",
+        "location_lat": 34.496399,
+        "location_lng": 69.200086,
+        "location_name": null,
+        "created_at": "2025-12-23T06:00:19.272102"
+      },
+      {
+        "submission_data": {
+          "_id": 636349794,
+          "info/enumerator_id": "65",
+          "info/enumerator_name": "Noman",
+          "info/organization": "partner1",
+          "info/survey_date": "2025-12-08",
+          "info/province": "p3",
+          "info/district": "p3_d1",
+          "info/village": "Village",
+          "info/gps_location": "34.480949 69.131318 0 0",
+          "beneficiary/hh_size": "20",
+          "beneficiary/head_of_household": "yes",
+          "beneficiary/respondent_name": "Noman",
+          "beneficiary/respondent_gender": "female",
+          "beneficiary/respondent_age": "25",
+          "beneficiary/age_group": "18-59",
+          "beneficiary/vulnerability": "chronic_illness disabled elderly",
+          "beneficiary/displaced": "yes",
+          "assistance/project": "nfi",
+          "assistance/distribution_date": "2025-12-08",
+          "assistance/received_assistance": "no",
+          "assistance/comments": "asdasd",
+          "feedback/have_complaint": "yes",
+          "feedback/complaint_category": "quality",
+          "feedback/complaint_description": "adad",
+          "feedback/complaint_id": "CMP-20251223-b0ada758-b117-4621-8a90-8918521fe122",
+          "photos/photo_beneficiary": "freepik_assistant_1764755175444-11_9_16.png",
+          "photos/photo_distribution": "freepik_assistant_1764755175444-11_9_21.png",
+          "meta/instanceID": "uuid:ee48b9b7-8252-4c42-88ef-a7031e220267",
+          "meta/rootUuid": "uuid:3cc18c25-b91c-479e-a293-1546b92a5a36",
+          "meta/deprecatedID": "uuid:3cc18c25-b91c-479e-a293-1546b92a5a36",
+          "formhub/uuid": "332f7aef50dc478993d0504d8afdcf1a",
+          "__version__": "vwg3tys6KMAj9ZtndCThMD",
+          "_xform_id_string": "arsYddWQmG4Hn2D8XMEdJw",
+          "_uuid": "ee48b9b7-8252-4c42-88ef-a7031e220267",
+          "_attachments": [
+            {
+              "download_url": "https://kf.kobotoolbox.org/api/v2/assets/arsYddWQmG4Hn2D8XMEdJw/data/636349794/attachments/attMSo3eMBNWJZmC7ECkYnWu/",
+              "mimetype": "image/png",
+              "filename": "samimsafi/attachments/332f7aef50dc478993d0504d8afdcf1a/ee48b9b7-8252-4c42-88ef-a7031e220267/freepik_assistant_1764755175444-11_9_16.png",
+              "media_file_basename": "freepik_assistant_1764755175444-11_9_16.png",
+              "uid": "attMSo3eMBNWJZmC7ECkYnWu",
+              "is_deleted": false,
+              "download_large_url": "https://kf.kobotoolbox.org/api/v2/assets/arsYddWQmG4Hn2D8XMEdJw/data/636349794/attachments/attMSo3eMBNWJZmC7ECkYnWu/large/",
+              "download_medium_url": "https://kf.kobotoolbox.org/api/v2/assets/arsYddWQmG4Hn2D8XMEdJw/data/636349794/attachments/attMSo3eMBNWJZmC7ECkYnWu/medium/",
+              "download_small_url": "https://kf.kobotoolbox.org/api/v2/assets/arsYddWQmG4Hn2D8XMEdJw/data/636349794/attachments/attMSo3eMBNWJZmC7ECkYnWu/small/",
+              "question_xpath": "photos/photo_beneficiary"
+            },
+            {
+              "download_url": "https://kf.kobotoolbox.org/api/v2/assets/arsYddWQmG4Hn2D8XMEdJw/data/636349794/attachments/attruxPXeEujTkaLWiMYgLbR/",
+              "mimetype": "image/png",
+              "filename": "samimsafi/attachments/332f7aef50dc478993d0504d8afdcf1a/ee48b9b7-8252-4c42-88ef-a7031e220267/freepik_assistant_1764755175444-11_9_21.png",
+              "media_file_basename": "freepik_assistant_1764755175444-11_9_21.png",
+              "uid": "attruxPXeEujTkaLWiMYgLbR",
+              "is_deleted": false,
+              "download_large_url": "https://kf.kobotoolbox.org/api/v2/assets/arsYddWQmG4Hn2D8XMEdJw/data/636349794/attachments/attruxPXeEujTkaLWiMYgLbR/large/",
+              "download_medium_url": "https://kf.kobotoolbox.org/api/v2/assets/arsYddWQmG4Hn2D8XMEdJw/data/636349794/attachments/attruxPXeEujTkaLWiMYgLbR/medium/",
+              "download_small_url": "https://kf.kobotoolbox.org/api/v2/assets/arsYddWQmG4Hn2D8XMEdJw/data/636349794/attachments/attruxPXeEujTkaLWiMYgLbR/small/",
+              "question_xpath": "photos/photo_distribution"
+            }
+          ],
+          "_status": "submitted_via_web",
+          "_geolocation": [
+            34.480949,
+            69.131318
+          ],
+          "_submission_time": "2025-12-23T05:17:34",
+          "_tags": [],
+          "_notes": [],
+          "_validation_status": {},
+          "_submitted_by": "samimsafi"
+        },
+        "id": 3,
+        "form_id": 1,
+        "kobo_submission_id": "636349794",
+        "submitted_at": "2025-12-23T05:17:34",
+        "location_lat": 34.480949,
+        "location_lng": 69.131318,
+        "location_name": null,
+        "created_at": "2025-12-23T06:00:19.272102"
+      }
+    ]
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/forms/1/chart-data",
+    "description": "Get donut chart for form 1",
+    "status_code": 200,
+    "success": true,
+    "response": {
+      "form_id": 1,
+      "chart_type": "donut",
+      "dimension": "info/province",
+      "secondary_dimension": null,
+      "data": [
+        {
+          "name": "Kabul",
+          "value": 1
+        },
+        {
+          "name": "Balkh",
+          "value": 1
+        },
+        {
+          "name": "Jalal Abad",
+          "value": 1
+        }
+      ],
+      "total": 3
+    }
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/charts/bar_chart",
+    "description": "Get bar chart with labels",
+    "status_code": 200,
+    "success": true,
+    "response": {
+      "form_id": 1,
+      "group_by": "info/province",
+      "items": [
+        {
+          "category": "Kabul",
+          "count": 1
+        },
+        {
+          "category": "Balkh",
+          "count": 1
+        },
+        {
+          "category": "Jalal Abad",
+          "count": 1
+        }
+      ],
+      "total_submissions": 3,
+      "unique_values": 3,
+      "field_label": "Province"
+    }
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/charts/box_plot",
+    "description": "Get box plot statistics",
+    "status_code": 200,
+    "success": true,
+    "response": {
+      "form_id": 1,
+      "column": "hh_size",
+      "q1": 22.5,
+      "median": 25.0,
+      "q3": 338.5,
+      "whisker_min": 20.0,
+      "whisker_max": 652.0,
+      "outliers": []
+    }
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/indicators",
+    "description": "List all indicators",
+    "status_code": 200,
+    "success": true,
+    "response": [
+      {
+        "name": "Total Submissions",
+        "description": null,
+        "indicator_type": "count",
+        "computation_rule": {
+          "field": "_all"
+        },
+        "id": 1,
+        "form_id": 1,
+        "value": 3.0,
+        "indicator_metadata": null,
+        "computed_at": "2025-12-23T06:00:19.300019",
+        "created_at": "2025-12-23T06:00:19.316111"
+      },
+      {
+        "name": "Count: _attachments_0_mimetype = image/png",
+        "description": null,
+        "indicator_type": "count",
+        "computation_rule": {
+          "field": "_attachments_0_mimetype",
+          "value": "image/png"
+        },
+        "id": 2,
+        "form_id": 1,
+        "value": 3.0,
+        "indicator_metadata": null,
+        "computed_at": "2025-12-23T06:00:19.304020",
+        "created_at": "2025-12-23T06:00:19.316111"
+      },
+      {
+        "name": "Count: _attachments_1_mimetype = image/png",
+        "description": null,
+        "indicator_type": "count",
+        "computation_rule": {
+          "field": "_attachments_1_mimetype",
+          "value": "image/png"
+        },
+        "id": 3,
+        "form_id": 1,
+        "value": 3.0,
+        "indicator_metadata": null,
+        "computed_at": "2025-12-23T06:00:19.304020",
+        "created_at": "2025-12-23T06:00:19.316111"
+      },
+      {
+        "name": "Count: feedback/complaint_category = quality",
+        "description": null,
+        "indicator_type": "count",
+        "computation_rule": {
+          "field": "feedback/complaint_category",
+          "value": "quality"
+        },
+        "id": 4,
+        "form_id": 1,
+        "value": 1.0,
+        "indicator_metadata": null,
+        "computed_at": "2025-12-23T06:00:19.305020",
+        "created_at": "2025-12-23T06:00:19.316111"
+      },
+      {
+        "name": "Percentage: _notes_count = Yes",
+        "description": null,
+        "indicator_type": "percentage",
+        "computation_rule": {
+          "field": "_notes_count",
+          "value": "yes"
+        },
+        "id": 5,
+        "form_id": 1,
+        "value": 0.0,
+        "indicator_metadata": null,
+        "computed_at": "2025-12-23T06:00:19.307020",
+        "created_at": "2025-12-23T06:00:19.316111"
+      },
+      "... (5 more items)"
+    ]
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/indicators",
+    "description": "List indicators for form 1",
+    "status_code": 200,
+    "success": true,
+    "response": [
+      {
+        "name": "Total Submissions",
+        "description": null,
+        "indicator_type": "count",
+        "computation_rule": {
+          "field": "_all"
+        },
+        "id": 1,
+        "form_id": 1,
+        "value": 3.0,
+        "indicator_metadata": null,
+        "computed_at": "2025-12-23T06:00:19.300019",
+        "created_at": "2025-12-23T06:00:19.316111"
+      },
+      {
+        "name": "Count: _attachments_0_mimetype = image/png",
+        "description": null,
+        "indicator_type": "count",
+        "computation_rule": {
+          "field": "_attachments_0_mimetype",
+          "value": "image/png"
+        },
+        "id": 2,
+        "form_id": 1,
+        "value": 3.0,
+        "indicator_metadata": null,
+        "computed_at": "2025-12-23T06:00:19.304020",
+        "created_at": "2025-12-23T06:00:19.316111"
+      },
+      {
+        "name": "Count: _attachments_1_mimetype = image/png",
+        "description": null,
+        "indicator_type": "count",
+        "computation_rule": {
+          "field": "_attachments_1_mimetype",
+          "value": "image/png"
+        },
+        "id": 3,
+        "form_id": 1,
+        "value": 3.0,
+        "indicator_metadata": null,
+        "computed_at": "2025-12-23T06:00:19.304020",
+        "created_at": "2025-12-23T06:00:19.316111"
+      },
+      {
+        "name": "Count: feedback/complaint_category = quality",
+        "description": null,
+        "indicator_type": "count",
+        "computation_rule": {
+          "field": "feedback/complaint_category",
+          "value": "quality"
+        },
+        "id": 4,
+        "form_id": 1,
+        "value": 1.0,
+        "indicator_metadata": null,
+        "computed_at": "2025-12-23T06:00:19.305020",
+        "created_at": "2025-12-23T06:00:19.316111"
+      },
+      {
+        "name": "Percentage: _notes_count = Yes",
+        "description": null,
+        "indicator_type": "percentage",
+        "computation_rule": {
+          "field": "_notes_count",
+          "value": "yes"
+        },
+        "id": 5,
+        "form_id": 1,
+        "value": 0.0,
+        "indicator_metadata": null,
+        "computed_at": "2025-12-23T06:00:19.307020",
+        "created_at": "2025-12-23T06:00:19.316111"
+      },
+      "... (5 more items)"
+    ]
+  },
+  {
+    "method": "GET",
+    "endpoint": "/form/1/indicators",
+    "description": "Get form 1 indicators (public)",
+    "status_code": 200,
+    "success": true,
+    "response": [
+      {
+        "name": "Total Submissions",
+        "description": null,
+        "indicator_type": "count",
+        "computation_rule": {
+          "field": "_all"
+        },
+        "id": 1,
+        "form_id": 1,
+        "value": 3.0,
+        "indicator_metadata": null,
+        "computed_at": "2025-12-23T06:00:19.300019",
+        "created_at": "2025-12-23T06:00:19.316111"
+      },
+      {
+        "name": "Count: _attachments_0_mimetype = image/png",
+        "description": null,
+        "indicator_type": "count",
+        "computation_rule": {
+          "field": "_attachments_0_mimetype",
+          "value": "image/png"
+        },
+        "id": 2,
+        "form_id": 1,
+        "value": 3.0,
+        "indicator_metadata": null,
+        "computed_at": "2025-12-23T06:00:19.304020",
+        "created_at": "2025-12-23T06:00:19.316111"
+      },
+      {
+        "name": "Count: _attachments_1_mimetype = image/png",
+        "description": null,
+        "indicator_type": "count",
+        "computation_rule": {
+          "field": "_attachments_1_mimetype",
+          "value": "image/png"
+        },
+        "id": 3,
+        "form_id": 1,
+        "value": 3.0,
+        "indicator_metadata": null,
+        "computed_at": "2025-12-23T06:00:19.304020",
+        "created_at": "2025-12-23T06:00:19.316111"
+      },
+      {
+        "name": "Count: feedback/complaint_category = quality",
+        "description": null,
+        "indicator_type": "count",
+        "computation_rule": {
+          "field": "feedback/complaint_category",
+          "value": "quality"
+        },
+        "id": 4,
+        "form_id": 1,
+        "value": 1.0,
+        "indicator_metadata": null,
+        "computed_at": "2025-12-23T06:00:19.305020",
+        "created_at": "2025-12-23T06:00:19.316111"
+      },
+      {
+        "name": "Percentage: _notes_count = Yes",
+        "description": null,
+        "indicator_type": "percentage",
+        "computation_rule": {
+          "field": "_notes_count",
+          "value": "yes"
+        },
+        "id": 5,
+        "form_id": 1,
+        "value": 0.0,
+        "indicator_metadata": null,
+        "computed_at": "2025-12-23T06:00:19.307020",
+        "created_at": "2025-12-23T06:00:19.316111"
+      },
+      "... (5 more items)"
+    ]
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/dashboard/summary",
+    "description": "Get dashboard summary",
+    "status_code": 200,
+    "success": true,
+    "response": {
+      "total_forms": 2,
+      "total_submissions": 3,
+      "total_indicators": 10,
+      "recent_submissions": 3,
+      "forms_by_category": {},
+      "submissions_by_date": [
+        {
+          "date": "2025-11-24T00:00:00",
+          "count": 0
+        },
+        {
+          "date": "2025-11-25T00:00:00",
+          "count": 0
+        },
+        {
+          "date": "2025-11-26T00:00:00",
+          "count": 0
+        },
+        {
+          "date": "2025-11-27T00:00:00",
+          "count": 0
+        },
+        {
+          "date": "2025-11-28T00:00:00",
+          "count": 0
+        },
+        {
+          "date": "2025-11-29T00:00:00",
+          "count": 0
+        },
+        {
+          "date": "2025-11-30T00:00:00",
+          "count": 0
+        },
+        {
+          "date": "2025-12-01T00:00:00",
+          "count": 0
+        },
+        {
+          "date": "2025-12-02T00:00:00",
+          "count": 0
+        },
+        {
+          "date": "2025-12-03T00:00:00",
+          "count": 0
+        },
+        {
+          "date": "2025-12-04T00:00:00",
+          "count": 0
+        },
+        {
+          "date": "2025-12-05T00:00:00",
+          "count": 0
+        },
+        {
+          "date": "2025-12-06T00:00:00",
+          "count": 0
+        },
+        {
+          "date": "2025-12-07T00:00:00",
+          "count": 0
+        },
+        {
+          "date": "2025-12-08T00:00:00",
+          "count": 0
+        },
+        {
+          "date": "2025-12-09T00:00:00",
+          "count": 0
+        },
+        {
+          "date": "2025-12-10T00:00:00",
+          "count": 0
+        },
+        {
+          "date": "2025-12-11T00:00:00",
+          "count": 0
+        },
+        {
+          "date": "2025-12-12T00:00:00",
+          "count": 0
+        },
+        {
+          "date": "2025-12-13T00:00:00",
+          "count": 0
+        },
+        {
+          "date": "2025-12-14T00:00:00",
+          "count": 0
+        },
+        {
+          "date": "2025-12-15T00:00:00",
+          "count": 0
+        },
+        {
+          "date": "2025-12-16T00:00:00",
+          "count": 0
+        },
+        {
+          "date": "2025-12-17T00:00:00",
+          "count": 0
+        },
+        {
+          "date": "2025-12-18T00:00:00",
+          "count": 0
+        },
+        {
+          "date": "2025-12-19T00:00:00",
+          "count": 0
+        },
+        {
+          "date": "2025-12-20T00:00:00",
+          "count": 0
+        },
+        {
+          "date": "2025-12-21T00:00:00",
+          "count": 0
+        },
+        {
+          "date": "2025-12-22T00:00:00",
+          "count": 0
+        },
+        {
+          "date": "2025-12-23T00:00:00",
+          "count": 3
+        }
+      ]
+    }
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/dashboard/indicators",
+    "description": "Get indicator dashboard",
+    "status_code": 200,
+    "success": true,
+    "response": {
+      "indicators": [
+        {
+          "name": "Total Submissions",
+          "description": null,
+          "indicator_type": "count",
+          "computation_rule": {
+            "field": "_all"
+          },
+          "id": 1,
+          "form_id": 1,
+          "value": 3.0,
+          "indicator_metadata": null,
+          "computed_at": "2025-12-23T06:00:19.300019",
+          "created_at": "2025-12-23T06:00:19.316111"
+        },
+        {
+          "name": "Count: _attachments_0_mimetype = image/png",
+          "description": null,
+          "indicator_type": "count",
+          "computation_rule": {
+            "field": "_attachments_0_mimetype",
+            "value": "image/png"
+          },
+          "id": 2,
+          "form_id": 1,
+          "value": 3.0,
+          "indicator_metadata": null,
+          "computed_at": "2025-12-23T06:00:19.304020",
+          "created_at": "2025-12-23T06:00:19.316111"
+        },
+        {
+          "name": "Count: _attachments_1_mimetype = image/png",
+          "description": null,
+          "indicator_type": "count",
+          "computation_rule": {
+            "field": "_attachments_1_mimetype",
+            "value": "image/png"
+          },
+          "id": 3,
+          "form_id": 1,
+          "value": 3.0,
+          "indicator_metadata": null,
+          "computed_at": "2025-12-23T06:00:19.304020",
+          "created_at": "2025-12-23T06:00:19.316111"
+        },
+        {
+          "name": "Count: feedback/complaint_category = quality",
+          "description": null,
+          "indicator_type": "count",
+          "computation_rule": {
+            "field": "feedback/complaint_category",
+            "value": "quality"
+          },
+          "id": 4,
+          "form_id": 1,
+          "value": 1.0,
+          "indicator_metadata": null,
+          "computed_at": "2025-12-23T06:00:19.305020",
+          "created_at": "2025-12-23T06:00:19.316111"
+        },
+        {
+          "name": "Percentage: _notes_count = Yes",
+          "description": null,
+          "indicator_type": "percentage",
+          "computation_rule": {
+            "field": "_notes_count",
+            "value": "yes"
+          },
+          "id": 5,
+          "form_id": 1,
+          "value": 0.0,
+          "indicator_metadata": null,
+          "computed_at": "2025-12-23T06:00:19.307020",
+          "created_at": "2025-12-23T06:00:19.316111"
+        },
+        {
+          "name": "Average: _id",
+          "description": null,
+          "indicator_type": "average",
+          "computation_rule": {
+            "field": "_id"
+          },
+          "id": 6,
+          "form_id": 1,
+          "value": 632033129.3333334,
+          "indicator_metadata": null,
+          "computed_at": "2025-12-23T06:00:19.311098",
+          "created_at": "2025-12-23T06:00:19.316111"
+        },
+        {
+          "name": "Average: info/enumerator_id",
+          "description": null,
+          "indicator_type": "average",
+          "computation_rule": {
+            "field": "info/enumerator_id"
+          },
+          "id": 7,
+          "form_id": 1,
+          "value": 228.0,
+          "indicator_metadata": null,
+          "computed_at": "2025-12-23T06:00:19.312112",
+          "created_at": "2025-12-23T06:00:19.316111"
+        },
+        {
+          "name": "Average: beneficiary/respondent_age",
+          "description": null,
+          "indicator_type": "average",
+          "computation_rule": {
+            "field": "beneficiary/respondent_age"
+          },
+          "id": 8,
+          "form_id": 1,
+          "value": 24.0,
+          "indicator_metadata": null,
+          "computed_at": "2025-12-23T06:00:19.313132",
+          "created_at": "2025-12-23T06:00:19.316111"
+        },
+        {
+          "name": "Average: _attachments_count",
+          "description": null,
+          "indicator_type": "average",
+          "computation_rule": {
+            "field": "_attachments_count"
+          },
+          "id": 9,
+          "form_id": 1,
+          "value": 2.0,
+          "indicator_metadata": null,
+          "computed_at": "2025-12-23T06:00:19.313132",
+          "created_at": "2025-12-23T06:00:19.316111"
+        },
+        {
+          "name": "Average: _geolocation_count",
+          "description": null,
+          "indicator_type": "average",
+          "computation_rule": {
+            "field": "_geolocation_count"
+          },
+          "id": 10,
+          "form_id": 1,
+          "value": 2.0,
+          "indicator_metadata": null,
+          "computed_at": "2025-12-23T06:00:19.315021",
+          "created_at": "2025-12-23T06:00:19.316111"
+        }
+      ],
+      "trends": [
+        {
+          "date": "2025-11-24T00:00:00",
+          "count": 0
+        },
+        {
+          "date": "2025-11-25T00:00:00",
+          "count": 0
+        },
+        {
+          "date": "2025-11-26T00:00:00",
+          "count": 0
+        },
+        {
+          "date": "2025-11-27T00:00:00",
+          "count": 0
+        },
+        {
+          "date": "2025-11-28T00:00:00",
+          "count": 0
+        },
+        {
+          "date": "2025-11-29T00:00:00",
+          "count": 0
+        },
+        {
+          "date": "2025-11-30T00:00:00",
+          "count": 0
+        },
+        {
+          "date": "2025-12-01T00:00:00",
+          "count": 0
+        },
+        {
+          "date": "2025-12-02T00:00:00",
+          "count": 0
+        },
+        {
+          "date": "2025-12-03T00:00:00",
+          "count": 0
+        },
+        {
+          "date": "2025-12-04T00:00:00",
+          "count": 0
+        },
+        {
+          "date": "2025-12-05T00:00:00",
+          "count": 0
+        },
+        {
+          "date": "2025-12-06T00:00:00",
+          "count": 0
+        },
+        {
+          "date": "2025-12-07T00:00:00",
+          "count": 0
+        },
+        {
+          "date": "2025-12-08T00:00:00",
+          "count": 0
+        },
+        {
+          "date": "2025-12-09T00:00:00",
+          "count": 0
+        },
+        {
+          "date": "2025-12-10T00:00:00",
+          "count": 0
+        },
+        {
+          "date": "2025-12-11T00:00:00",
+          "count": 0
+        },
+        {
+          "date": "2025-12-12T00:00:00",
+          "count": 0
+        },
+        {
+          "date": "2025-12-13T00:00:00",
+          "count": 0
+        },
+        {
+          "date": "2025-12-14T00:00:00",
+          "count": 0
+        },
+        {
+          "date": "2025-12-15T00:00:00",
+          "count": 0
+        },
+        {
+          "date": "2025-12-16T00:00:00",
+          "count": 0
+        },
+        {
+          "date": "2025-12-17T00:00:00",
+          "count": 0
+        },
+        {
+          "date": "2025-12-18T00:00:00",
+          "count": 0
+        },
+        {
+          "date": "2025-12-19T00:00:00",
+          "count": 0
+        },
+        {
+          "date": "2025-12-20T00:00:00",
+          "count": 0
+        },
+        {
+          "date": "2025-12-21T00:00:00",
+          "count": 0
+        },
+        {
+          "date": "2025-12-22T00:00:00",
+          "count": 0
+        },
+        {
+          "date": "2025-12-23T00:00:00",
+          "count": 10
+        }
+      ],
+      "by_category": {
+        "uncategorized": [
+          {
+            "name": "Total Submissions",
+            "description": null,
+            "indicator_type": "count",
+            "computation_rule": {
+              "field": "_all"
+            },
+            "id": 1,
+            "form_id": 1,
+            "value": 3.0,
+            "indicator_metadata": null,
+            "computed_at": "2025-12-23T06:00:19.300019",
+            "created_at": "2025-12-23T06:00:19.316111"
+          },
+          {
+            "name": "Count: _attachments_0_mimetype = image/png",
+            "description": null,
+            "indicator_type": "count",
+            "computation_rule": {
+              "field": "_attachments_0_mimetype",
+              "value": "image/png"
+            },
+            "id": 2,
+            "form_id": 1,
+            "value": 3.0,
+            "indicator_metadata": null,
+            "computed_at": "2025-12-23T06:00:19.304020",
+            "created_at": "2025-12-23T06:00:19.316111"
+          },
+          {
+            "name": "Count: _attachments_1_mimetype = image/png",
+            "description": null,
+            "indicator_type": "count",
+            "computation_rule": {
+              "field": "_attachments_1_mimetype",
+              "value": "image/png"
+            },
+            "id": 3,
+            "form_id": 1,
+            "value": 3.0,
+            "indicator_metadata": null,
+            "computed_at": "2025-12-23T06:00:19.304020",
+            "created_at": "2025-12-23T06:00:19.316111"
+          },
+          {
+            "name": "Count: feedback/complaint_category = quality",
+            "description": null,
+            "indicator_type": "count",
+            "computation_rule": {
+              "field": "feedback/complaint_category",
+              "value": "quality"
+            },
+            "id": 4,
+            "form_id": 1,
+            "value": 1.0,
+            "indicator_metadata": null,
+            "computed_at": "2025-12-23T06:00:19.305020",
+            "created_at": "2025-12-23T06:00:19.316111"
+          },
+          {
+            "name": "Percentage: _notes_count = Yes",
+            "description": null,
+            "indicator_type": "percentage",
+            "computation_rule": {
+              "field": "_notes_count",
+              "value": "yes"
+            },
+            "id": 5,
+            "form_id": 1,
+            "value": 0.0,
+            "indicator_metadata": null,
+            "computed_at": "2025-12-23T06:00:19.307020",
+            "created_at": "2025-12-23T06:00:19.316111"
+          },
+          {
+            "name": "Average: _id",
+            "description": null,
+            "indicator_type": "average",
+            "computation_rule": {
+              "field": "_id"
+            },
+            "id": 6,
+            "form_id": 1,
+            "value": 632033129.3333334,
+            "indicator_metadata": null,
+            "computed_at": "2025-12-23T06:00:19.311098",
+            "created_at": "2025-12-23T06:00:19.316111"
+          },
+          {
+            "name": "Average: info/enumerator_id",
+            "description": null,
+            "indicator_type": "average",
+            "computation_rule": {
+              "field": "info/enumerator_id"
+            },
+            "id": 7,
+            "form_id": 1,
+            "value": 228.0,
+            "indicator_metadata": null,
+            "computed_at": "2025-12-23T06:00:19.312112",
+            "created_at": "2025-12-23T06:00:19.316111"
+          },
+          {
+            "name": "Average: beneficiary/respondent_age",
+            "description": null,
+            "indicator_type": "average",
+            "computation_rule": {
+              "field": "beneficiary/respondent_age"
+            },
+            "id": 8,
+            "form_id": 1,
+            "value": 24.0,
+            "indicator_metadata": null,
+            "computed_at": "2025-12-23T06:00:19.313132",
+            "created_at": "2025-12-23T06:00:19.316111"
+          },
+          {
+            "name": "Average: _attachments_count",
+            "description": null,
+            "indicator_type": "average",
+            "computation_rule": {
+              "field": "_attachments_count"
+            },
+            "id": 9,
+            "form_id": 1,
+            "value": 2.0,
+            "indicator_metadata": null,
+            "computed_at": "2025-12-23T06:00:19.313132",
+            "created_at": "2025-12-23T06:00:19.316111"
+          },
+          {
+            "name": "Average: _geolocation_count",
+            "description": null,
+            "indicator_type": "average",
+            "computation_rule": {
+              "field": "_geolocation_count"
+            },
+            "id": 10,
+            "form_id": 1,
+            "value": 2.0,
+            "indicator_metadata": null,
+            "computed_at": "2025-12-23T06:00:19.315021",
+            "created_at": "2025-12-23T06:00:19.316111"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/dashboard/accountability",
+    "description": "Get accountability dashboard",
+    "status_code": 200,
+    "success": true,
+    "response": {
+      "complaints": [],
+      "complaints_by_status": {},
+      "complaints_by_location": [],
+      "trends": [
+        {
+          "date": "2025-11-24T00:00:00",
+          "count": 0
+        },
+        {
+          "date": "2025-11-25T00:00:00",
+          "count": 0
+        },
+        {
+          "date": "2025-11-26T00:00:00",
+          "count": 0
+        },
+        {
+          "date": "2025-11-27T00:00:00",
+          "count": 0
+        },
+        {
+          "date": "2025-11-28T00:00:00",
+          "count": 0
+        },
+        {
+          "date": "2025-11-29T00:00:00",
+          "count": 0
+        },
+        {
+          "date": "2025-11-30T00:00:00",
+          "count": 0
+        },
+        {
+          "date": "2025-12-01T00:00:00",
+          "count": 0
+        },
+        {
+          "date": "2025-12-02T00:00:00",
+          "count": 0
+        },
+        {
+          "date": "2025-12-03T00:00:00",
+          "count": 0
+        },
+        {
+          "date": "2025-12-04T00:00:00",
+          "count": 0
+        },
+        {
+          "date": "2025-12-05T00:00:00",
+          "count": 0
+        },
+        {
+          "date": "2025-12-06T00:00:00",
+          "count": 0
+        },
+        {
+          "date": "2025-12-07T00:00:00",
+          "count": 0
+        },
+        {
+          "date": "2025-12-08T00:00:00",
+          "count": 0
+        },
+        {
+          "date": "2025-12-09T00:00:00",
+          "count": 0
+        },
+        {
+          "date": "2025-12-10T00:00:00",
+          "count": 0
+        },
+        {
+          "date": "2025-12-11T00:00:00",
+          "count": 0
+        },
+        {
+          "date": "2025-12-12T00:00:00",
+          "count": 0
+        },
+        {
+          "date": "2025-12-13T00:00:00",
+          "count": 0
+        },
+        {
+          "date": "2025-12-14T00:00:00",
+          "count": 0
+        },
+        {
+          "date": "2025-12-15T00:00:00",
+          "count": 0
+        },
+        {
+          "date": "2025-12-16T00:00:00",
+          "count": 0
+        },
+        {
+          "date": "2025-12-17T00:00:00",
+          "count": 0
+        },
+        {
+          "date": "2025-12-18T00:00:00",
+          "count": 0
+        },
+        {
+          "date": "2025-12-19T00:00:00",
+          "count": 0
+        },
+        {
+          "date": "2025-12-20T00:00:00",
+          "count": 0
+        },
+        {
+          "date": "2025-12-21T00:00:00",
+          "count": 0
+        },
+        {
+          "date": "2025-12-22T00:00:00",
+          "count": 0
+        },
+        {
+          "date": "2025-12-23T00:00:00",
+          "count": 0
+        }
+      ]
+    }
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/data/load",
+    "description": "Load data by date",
+    "status_code": 500,
+    "success": false,
+    "response": "Internal Server Error"
+  }
+]
