@@ -59,6 +59,7 @@ logger = logging.getLogger(__name__)
 
 # Import WebSocket manager
 from websocket_manager import manager
+from discover import discover_router
 
 
 @asynccontextmanager
@@ -107,6 +108,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Discovery endpoints (auto-detect Back4App URL)
+app.include_router(discover_router)
 
 
 # ============================================================================
