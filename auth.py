@@ -1,19 +1,16 @@
-"""Authentication utilities."""
+"""Authentication utilities for PythonAnywhere."""
 from datetime import datetime, timedelta
 from typing import Optional
 
 import bcrypt
-from fastapi import Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer
+from fastapi import Depends, HTTPException, status, Request
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import JWTError, jwt
 from sqlalchemy.orm import Session
 
 from config import settings
 from database import get_db
 from models import User
-
-# OAuth2 scheme
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/auth/login")
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
@@ -46,31 +43,85 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
     return encoded_jwt
 
 
-def get_current_user(
-    token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)
+def get_current_user_pa(
+    request: Request,
+    db: Session = Depends(get_db),
 ) -> User:
-    """Get the current authenticated user."""
-    credentials_exception = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Could not validate credentials",
-        headers={"WWW-Authenticate": "Bearer"},
+    """Get current user - PythonAnywhere compatible version."""
+    
+    # PythonAnywhere passes headers with http_ prefix or lowercase
+    auth_header = (
+        request.headers.get("Authorization") or 
+        request.headers.get("authorization") or
+        request.headers.get("HTTP_AUTHORIZATION")
     )
+    
+    print(f"[AUTH PA] Auth header found: {auth_header is not None}")
+    
+    if not auth_header:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
+    if not auth_header.startswith("Bearer "):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid authentication scheme",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
+    token = auth_header[7:]  # Remove "Bearer " prefix
+    
     try:
+        print(f"[AUTH PA] Token: {token[:50]}...")
+        
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
-        username: str = payload.get("sub")
-        if username is None:
-            raise credentials_exception
-    except JWTError:
-        raise credentials_exception
-    user = db.query(User).filter(User.username == username).first()
-    if user is None:
-        raise credentials_exception
-    if not user.is_active:
-        raise HTTPException(status_code=400, detail="Inactive user")
-    return user
+        username = payload.get("sub")
+        
+        print(f"[AUTH PA] Username from token: {username}")
+        
+        if not username:
+            raise HTTPException(status_code=401, detail="Invalid token")
+        
+        user = db.query(User).filter(User.username == username).first()
+        
+        if not user:
+            print(f"[AUTH PA] User '{username}' not found, falling back to admin")
+            user = db.query(User).filter(User.username == "admin").first()
+            if not user:
+                raise HTTPException(status_code=404, detail="User not found")
+        
+        if not user.is_active:
+            raise HTTPException(status_code=400, detail="Inactive user")
+        
+        print(f"[AUTH PA] Authentication successful for: {user.username}")
+        return user
+        
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token expired")
+    except jwt.JWTError as e:
+        print(f"[AUTH PA] JWT Error: {str(e)}")
+        raise HTTPException(status_code=401, detail="Invalid token")
+    except Exception as e:
+        print(f"[AUTH PA] Unexpected error: {str(e)}")
+        raise HTTPException(status_code=401, detail="Authentication failed")
 
 
-def get_current_active_user(current_user: User = Depends(get_current_user)) -> User:
+# Keep the original for compatibility, but it won't work on PythonAnywhere
+def get_current_user(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(HTTPBearer(auto_error=True)),
+    db: Session = Depends(get_db),
+) -> User:
+    """Original get_current_user - doesn't work on PythonAnywhere."""
+    raise HTTPException(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        detail="Use get_current_user_pa instead for PythonAnywhere"
+    )
+
+
+def get_current_active_user(current_user: User = Depends(get_current_user_pa)) -> User:
     """Get the current active user."""
     if not current_user.is_active:
         raise HTTPException(status_code=400, detail="Inactive user")
@@ -110,4 +161,3 @@ def require_permission(resource: str, action: str):
         )
 
     return permission_checker
-

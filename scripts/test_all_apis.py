@@ -13,7 +13,7 @@ def login() -> str:
     try:
         response = requests.post(
             f"{BASE_URL}/api/auth/login",
-            data={"username": "admin", "password": "admin123"}
+            json={"username": "admin", "password": "admin123"}
         )
         if response.status_code == 200:
             TOKEN = response.json()["access_token"]

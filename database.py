@@ -36,13 +36,19 @@ def init_db():
     import os
     import sqlite3
 
-    # Create data directory if it doesn't exist
-    db_path = settings.DATABASE_URL.replace("sqlite:///", "")
-    if db_path.startswith("./"):
-        os.makedirs(os.path.dirname(db_path), exist_ok=True)
+    # Create data directory if it doesn't exist (handle relative & absolute paths)
+    if settings.DATABASE_URL.startswith("sqlite:///"):
+        db_path = settings.DATABASE_URL.replace("sqlite:///", "", 1)
+
+        # Normalize to an absolute path for reliability on Windows
+        abs_db_path = os.path.abspath(db_path)
+        db_dir = os.path.dirname(abs_db_path)
+
+        if db_dir:
+            os.makedirs(db_dir, exist_ok=True)
 
     Base.metadata.create_all(bind=engine)
-    
+
     # Add cleaned_data column if it doesn't exist (migration)
     if "sqlite" in settings.DATABASE_URL:
         try:
@@ -50,11 +56,11 @@ def init_db():
             cursor = conn.cursor()
             cursor.execute("PRAGMA table_info(submissions)")
             columns = [row[1] for row in cursor.fetchall()]
-            
+
             if "cleaned_data" not in columns:
                 cursor.execute("ALTER TABLE submissions ADD COLUMN cleaned_data TEXT")
                 conn.commit()
-            
+
             cursor.close()
             conn.close()
         except Exception as e:

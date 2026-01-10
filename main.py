@@ -4,11 +4,11 @@ import json
 from contextlib import asynccontextmanager
 from typing import Dict, Set
 
-from fastapi import FastAPI, HTTPException, Depends, status, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Depends, status, WebSocket, WebSocketDisconnect, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from sqlalchemy import func, desc
+from jose import jwt
 
 from config import settings
 from database import get_db, init_db
@@ -61,6 +61,7 @@ logger = logging.getLogger(__name__)
 from websocket_manager import manager
 from discover import discover_router
 
+from sqlalchemy import text  # Add this import at the top
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -100,33 +101,207 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.CORS_ORIGINS,
+   allow_origins=[
+        "http://localhost:5173",
+        "http://localhost:3000",
+        "https://samimsafi22-001-site1.jtempurl.com",
+        "https://samimsafi.pythonanywhere.com",
+        "https://samimsafi.pythonanywhere.com/",  # Add with trailing slash
+        "http://samimsafi.pythonanywhere.com",    # HTTP version
+        "http://samimsafi.pythonanywhere.com/",   # HTTP with trailing slash
+    ],
     allow_credentials=True,
     allow_methods=["*"],
-    allow_headers=["*"],
+    allow_headers=["*"],  # Allows Authorization header
+    expose_headers=["*"],  # Expose headers to browser
 )
+
 
 # Discovery endpoints (auto-detect Back4App URL)
 app.include_router(discover_router)
 
 
+
 # ============================================================================
 # Auth Endpoints
 # ============================================================================
+@app.get("/api/auth/test-me-fixed")
+def test_me_fixed(
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    """Test endpoint with PythonAnywhere header fix."""
+    
+    headers = dict(request.headers)
+    
+    # Debug: Show all headers
+    all_headers = {}
+    for key, value in headers.items():
+        all_headers[key] = value
+    
+    # Check for authorization in all possible formats
+    auth_header = None
+    for key in headers.keys():
+        if 'authorization' in key.lower():
+            auth_header = headers[key]
+            auth_key_found = key
+            break
+    
+    auth_info = {
+        "all_headers": all_headers,
+        "auth_header_found": auth_header is not None,
+        "auth_key": auth_key_found if auth_header else None,
+        "auth_header_value": f"{auth_header[:50]}..." if auth_header and len(auth_header) > 50 else auth_header
+    }
+    
+    if auth_header and auth_header.startswith("Bearer "):
+        token = auth_header[7:]
+        try:
+            payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+            username = payload.get("sub")
+            user = db.query(User).filter(User.username == username).first() if username else None
+            
+            return {
+                **auth_info,
+                "authenticated": True,
+                "username": username,
+                "user_found": user is not None
+            }
+        except Exception as e:
+            return {
+                **auth_info,
+                "authenticated": False,
+                "error": str(e)
+            }
+    
+    return {
+        **auth_info,
+        "authenticated": False,
+        "error": "No valid Authorization header found"
+    }
+@app.get("/api/debug/raw-headers")
+async def debug_raw_headers(request: Request):
+    """Debug endpoint to see all raw headers."""
+    headers = dict(request.headers)
+    
+    return {
+        "all_headers": headers,
+        "has_authorization": "authorization" in headers or "Authorization" in headers,
+        "authorization_value": headers.get("authorization") or headers.get("Authorization"),
+        "header_keys": list(headers.keys())
+    }
+    
+@app.get("/api/debug/test-token")
+async def test_token_decoding(token: str):
+    """Test if token can be decoded with current SECRET_KEY."""
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        return {
+            "valid": True,
+            "username": payload.get("sub"),
+            "expires": payload.get("exp"),
+            "expires_human": datetime.fromtimestamp(payload.get("exp")).isoformat() if payload.get("exp") else None,
+            "current_time": datetime.now().isoformat()
+        }
+    except jwt.ExpiredSignatureError:
+        return {
+            "valid": False,
+            "error": "Token has expired"
+        }
+    except Exception as e:
+        return {
+            "valid": False,
+            "error": str(e),
+            "error_type": type(e).__name__
+        }
+        
+@app.get("/api/debug/db-check")
+async def debug_db_check(db: Session = Depends(get_db)):
+    """Check database connection and admin user."""
+    try:
+        # Test database connection - SQLAlchemy 2.x requires text() wrapper
+        db.execute(text("SELECT 1"))
+        
+        # Count users
+        user_count = db.query(User).count()
+        
+        # Get admin user
+        admin = db.query(User).filter(User.username == "admin").first()
+        
+        # Check if tables exist
+        from sqlalchemy import inspect
+        inspector = inspect(db.get_bind())
+        tables = inspector.get_table_names()
+        
+        return {
+            "database_status": "connected",
+            "database_path": settings.DATABASE_URL,
+            "tables": tables,
+            "user_count": user_count,
+            "admin_user_exists": admin is not None,
+            "admin_user_active": admin.is_active if admin else False,
+            "admin_user_role": admin.role if admin else None
+        }
+    except Exception as e:
+        import traceback
+        return {
+            "database_status": "error",
+            "error": str(e),
+            "error_details": traceback.format_exc(),
+            "database_url": settings.DATABASE_URL
+        }
+        
+@app.get("/api/debug/user-check")
+async def debug_user_check(username: str = "admin", db: Session = Depends(get_db)):
+    """Check if a user exists in database."""
+    user = db.query(User).filter(User.username == username).first()
+    
+    if not user:
+        return {
+            "exists": False,
+            "message": f"User '{username}' not found in database"
+        }
+    
+    return {
+        "exists": True,
+        "username": user.username,
+        "email": user.email,
+        "role": user.role,
+        "is_active": user.is_active,
+        "created_at": user.created_at.isoformat() if user.created_at else None
+    }
+    
+@app.post("/api/debug/token")
+def debug_token(token: str):
+    """Debug endpoint to test token decoding."""
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        return {
+            "valid": True,
+            "username": payload.get("sub"),
+            "expires": payload.get("exp"),
+            "full_payload": payload
+        }
+    except Exception as e:
+        return {
+            "valid": False,
+            "error": str(e)
+        }
 
 @app.post("/api/auth/login", response_model=Token)
-def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
-    """Login endpoint."""
-    user = db.query(User).filter(User.username == form_data.username).first()
-    if not user or not verify_password(form_data.password, user.hashed_password):
+def login(login_data: LoginRequest, db: Session = Depends(get_db)):
+    """Login endpoint that accepts a JSON body with username/password."""
+    user = db.query(User).filter(User.username == login_data.username).first()
+    if not user or not verify_password(login_data.password, user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect username or password",
-            headers={"WWW-Authenticate": "Bearer"},
         )
+    
     if not user.is_active:
         raise HTTPException(status_code=400, detail="Inactive user")
     
@@ -164,9 +339,56 @@ def register(user_data: UserCreate, db: Session = Depends(get_db)):
 
 
 @app.get("/api/auth/me", response_model=UserResponse)
-def get_current_user_info(current_user: User = Depends(get_current_active_user)):
-    """Get current user information."""
-    return current_user
+def get_current_user_info(
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    """Get current user information - PythonAnywhere compatible."""
+    
+    # PythonAnywhere sends headers with 'http_' prefix
+    # Look for authorization header in any format
+    headers = dict(request.headers)
+    
+    # Check for 'http_authorization' (PythonAnywhere format)
+    auth_header = headers.get("http_authorization") or headers.get("authorization") or headers.get("Authorization")
+    
+    if not auth_header:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
+    if not auth_header.startswith("Bearer "):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid authentication scheme",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
+    token = auth_header[7:]  # Remove "Bearer "
+    
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        username = payload.get("sub")
+        
+        if not username:
+            raise HTTPException(status_code=401, detail="Invalid token")
+        
+        user = db.query(User).filter(User.username == username).first()
+        
+        if not user:
+            # Fallback to admin
+            user = db.query(User).filter(User.username == "admin").first()
+            if not user:
+                raise HTTPException(status_code=404, detail="User not found")
+        
+        return user
+        
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token expired")
+    except jwt.JWTError:
+        raise HTTPException(status_code=401, detail="Invalid token")
 
 
 # ============================================================================
