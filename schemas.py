@@ -341,3 +341,73 @@ class DailyDataResponse(BaseModel):
     date: str
     total: int
     submissions: list[SubmissionResponse]
+
+
+# Organization Schemas
+class OrganizationBase(BaseModel):
+    """Base organization schema."""
+
+    name: str
+    description: Optional[str] = None
+
+
+class OrganizationCreate(OrganizationBase):
+    """Organization creation schema."""
+
+    pass
+
+
+class OrganizationResponse(OrganizationBase):
+    """Organization response schema."""
+
+    id: int
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+# Branding Schemas
+class BrandingBase(BaseModel):
+    """Base branding schema."""
+
+    company_name: str
+    primary_color: Optional[str] = None
+    secondary_color: Optional[str] = None
+    description: Optional[str] = None
+
+
+class BrandingCreate(BrandingBase):
+    """Branding creation schema."""
+
+    organization_id: int
+
+
+class BrandingUpdate(BaseModel):
+    """Branding update schema."""
+
+    company_name: Optional[str] = None
+    primary_color: Optional[str] = None
+    secondary_color: Optional[str] = None
+    description: Optional[str] = None
+
+
+class BrandingResponse(BrandingBase):
+    """Branding response schema."""
+
+    id: int
+    organization_id: int
+    logo_path: Optional[str] = None
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class BrandingDetailResponse(BrandingResponse):
+    """Detailed branding response with organization info."""
+
+    organization: OrganizationResponse

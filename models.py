@@ -5,7 +5,10 @@ from enum import Enum
 from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, String, Text, JSON
 from sqlalchemy.orm import relationship
 
-from database import Base
+# Define Base here to avoid a separate base.py file and simplify imports
+from sqlalchemy.ext.declarative import declarative_base
+
+Base = declarative_base()
 
 
 class UserRole(str, Enum):
@@ -14,6 +17,42 @@ class UserRole(str, Enum):
     ADMIN = "admin"
     VIEWER = "viewer"
     EDITOR = "editor"
+
+
+class Organization(Base):
+    """Organization/Client model."""
+
+    __tablename__ = "organizations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(255), unique=True, index=True, nullable=False)
+    description = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    # Relationships
+    users = relationship("User", back_populates="organization", cascade="all, delete-orphan")
+    branding = relationship("Branding", back_populates="organization", uselist=False, cascade="all, delete-orphan")
+
+
+class Branding(Base):
+    """Branding/Setup configuration for organization."""
+
+    __tablename__ = "branding"
+
+    id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), unique=True, nullable=False)
+    company_name = Column(String(255), nullable=False)
+    logo_path = Column(String(500), nullable=True)
+    primary_color = Column(String(50), nullable=True)
+    secondary_color = Column(String(50), nullable=True)
+    description = Column(Text, nullable=True)
+    is_active = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    # Relationships
+    organization = relationship("Organization", back_populates="branding")
 
 
 class User(Base):
@@ -27,12 +66,14 @@ class User(Base):
     hashed_password = Column(String(255), nullable=False)
     full_name = Column(String(255), nullable=True)
     role = Column(String(20), default=UserRole.VIEWER.value, nullable=False)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=True)
     is_active = Column(Boolean, default=True, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
     # Relationships
     permissions = relationship("UserPermission", back_populates="user", cascade="all, delete-orphan")
+    organization = relationship("Organization", back_populates="users")
 
 
 class UserPermission(Base):

@@ -1,18 +1,33 @@
 """FastAPI main application."""
+import sys
+import os
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent))
+
 import logging
 import json
+import shutil
 from contextlib import asynccontextmanager
 from typing import Dict, Set
+from sqlalchemy import text
 
-from fastapi import FastAPI, HTTPException, Depends, status, WebSocket, WebSocketDisconnect, Request
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Avoid running initialization at import time. Initialization is handled
+# in the FastAPI `lifespan` context manager or when running as a script.
+    
+from fastapi import FastAPI, HTTPException, Depends, status, WebSocket, WebSocketDisconnect, Request, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 from sqlalchemy import func, desc
 from jose import jwt
 
 from config import settings
 from database import get_db, init_db
-from models import User, Form, Submission, Indicator, SyncLog, UserPermission, RawSubmission
+from models import User, Form as FormModel, Submission, Indicator, SyncLog, UserPermission, RawSubmission, Organization, Branding
 from typing import Optional
 from schemas import (
     UserCreate,
@@ -39,6 +54,12 @@ from schemas import (
     BarChartResponse,
     BarChartItem,
     DailyDataResponse,
+    OrganizationCreate,
+    OrganizationResponse,
+    BrandingCreate,
+    BrandingUpdate,
+    BrandingResponse,
+    BrandingDetailResponse,
 )
 from auth import (
     get_current_active_user,
@@ -61,37 +82,52 @@ logger = logging.getLogger(__name__)
 from websocket_manager import manager
 from discover import discover_router
 
-from sqlalchemy import text  # Add this import at the top
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Lifespan context manager for startup/shutdown."""
-    # Startup
-    logger.info("Initializing database...")
-    init_db()
-    
-    # Create default admin user if it doesn't exist
-    db = next(get_db())
-    admin = db.query(User).filter(User.username == "admin").first()
-    if not admin:
-        admin = User(
-            username="admin",
-            email="admin@example.com",
-            hashed_password=get_password_hash("admin123"),
-            full_name="Administrator",
-            role="admin",
-            is_active=True,
-        )
-        db.add(admin)
-        db.commit()
-        logger.info("Default admin user created (username: admin, password: admin123)")
-    db.close()
+    try:
+        logger.info("Application starting...")
+        
+        db = next(get_db())
+        try:
+            # Check and create default organization
+            org = db.query(Organization).filter(Organization.name == "Default").first()
+            if not org:
+                org = Organization(name="Default", description="Default organization")
+                db.add(org)
+                db.commit()
+                db.refresh(org)
+                logger.info("Default organization created")
+            
+            # Check and create default admin user
+            admin = db.query(User).filter(User.username == "admin").first()
+            if not admin:
+                admin = User(
+                    username="admin",
+                    email="admin@example.com",
+                    hashed_password=get_password_hash("admin123"),
+                    full_name="Administrator",
+                    role="admin",
+                    organization_id=org.id,
+                    is_active=True,
+                )
+                db.add(admin)
+                db.commit()
+                logger.info("Default admin user created (username: admin, password: admin123)")
+            elif not admin.organization_id:
+                admin.organization_id = org.id
+                db.commit()
+                logger.info("Admin user linked to default organization")
+        finally:
+            db.close()
+    except Exception as e:
+        logger.error(f"Database initialization error: {e}", exc_info=True)
     
     yield
     
-    # Shutdown
     logger.info("Shutting down...")
-
 
 # Create FastAPI app
 app = FastAPI(
@@ -119,6 +155,11 @@ app.add_middleware(
     allow_headers=["*"],  # Allows Authorization header
     expose_headers=["*"],  # Expose headers to browser
 )
+
+
+uploads_dir = Path("uploads")
+uploads_dir.mkdir(parents=True, exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=str(uploads_dir)), name="uploads")
 
 
 # Discovery endpoints (auto-detect Back4App URL)
@@ -544,9 +585,9 @@ def list_forms(
     db: Session = Depends(get_db),
 ):
     """List all forms from the local cache/database."""
-    query = db.query(Form)
+    query = db.query(FormModel)
     if category:
-        query = query.filter(Form.category == category)
+        query = query.filter(FormModel.category == category)
     
     forms = query.offset(skip).limit(limit).all()
     
@@ -589,7 +630,7 @@ def get_form(
     db: Session = Depends(get_db),
 ):
     """Get a specific form."""
-    form = db.query(Form).filter(Form.id == form_id).first()
+    form = db.query(FormModel).filter(FormModel.id == form_id).first()
     if not form:
         raise HTTPException(status_code=404, detail="Form not found")
     
@@ -667,7 +708,7 @@ def list_indicators(
     if form_id:
         query = query.filter(Indicator.form_id == form_id)
     if category:
-        query = query.join(Form).filter(Form.category == category)
+        query = query.join(FormModel).filter(FormModel.category == category)
     
     indicators = query.all()
     return indicators
@@ -707,7 +748,7 @@ def get_form_indicators_summary(
     - province_counts
     - time_trend_summary
     """
-    form = db.query(Form).filter(Form.id == form_id).first()
+    form = db.query(FormModel).filter(FormModel.id == form_id).first()
     if not form:
         raise HTTPException(status_code=404, detail="Form not found")
 
@@ -814,7 +855,7 @@ def aggregate_form_data(
     - group_by: list of fields to group by
     - metrics: list of metrics to compute per group
     """
-    form = db.query(Form).filter(Form.id == form_id).first()
+    form = db.query(FormModel).filter(FormModel.id == form_id).first()
     if not form:
         raise HTTPException(status_code=404, detail="Form not found")
 
@@ -1306,7 +1347,7 @@ def generate_box_plot(
     """
     from statistics import median
 
-    form = db.query(Form).filter(Form.id == request.form_id).first()
+    form = db.query(FormModel).filter(FormModel.id == request.form_id).first()
     if not form:
         raise HTTPException(status_code=404, detail="Form not found")
 
@@ -1460,7 +1501,7 @@ def generate_bar_chart(
     Auto-groups by the first filter field if group_by is not provided or empty.
     Returns counts per distinct value with actual field values (not codes).
     """
-    form = db.query(Form).filter(Form.id == request.form_id).first()
+    form = db.query(FormModel).filter(FormModel.id == request.form_id).first()
     if not form:
         raise HTTPException(status_code=404, detail="Form not found")
 
@@ -1725,7 +1766,7 @@ def get_dashboard_summary(
     db: Session = Depends(get_db),
 ):
     """Get dashboard summary."""
-    total_forms = db.query(func.count(Form.id)).scalar()
+    total_forms = db.query(func.count(FormModel.id)).scalar()
     total_submissions = db.query(func.count(Submission.id)).scalar()
     total_indicators = db.query(func.count(Indicator.id)).scalar()
     
@@ -1739,10 +1780,10 @@ def get_dashboard_summary(
     
     # Forms by category
     forms_by_category = {}
-    categories = db.query(Form.category).distinct().all()
+    categories = db.query(FormModel.category).distinct().all()
     for (category,) in categories:
         if category:
-            count = db.query(func.count(Form.id)).filter(Form.category == category).scalar()
+            count = db.query(func.count(FormModel.id)).filter(FormModel.category == category).scalar()
             forms_by_category[category] = count
     
     # Submissions by date (last 30 days)
@@ -1777,14 +1818,14 @@ def get_indicator_dashboard(
     """Get indicator dashboard data."""
     query = db.query(Indicator)
     if category:
-        query = query.join(Form).filter(Form.category == category)
+        query = query.join(FormModel).filter(FormModel.category == category)
     
     indicators = query.all()
     
     # Group by category
     by_category = {}
     for indicator in indicators:
-        form = db.query(Form).filter(Form.id == indicator.form_id).first()
+        form = db.query(FormModel).filter(FormModel.id == indicator.form_id).first()
         cat = form.category or "uncategorized"
         if cat not in by_category:
             by_category[cat] = []
@@ -1817,8 +1858,8 @@ def get_accountability_dashboard(
 ):
     """Get accountability and complaints dashboard data."""
     # Get complaints (assuming forms with category "complaints" or "accountability")
-    complaint_forms = db.query(Form).filter(
-        (Form.category == "complaints") | (Form.category == "accountability")
+    complaint_forms = db.query(FormModel).filter(
+        (FormModel.category == "complaints") | (FormModel.category == "accountability")
     ).all()
     
     form_ids = [f.id for f in complaint_forms]
@@ -1881,7 +1922,7 @@ def sync_forms(
     
     if sync_request.form_id:
         # Sync specific form
-        form = db.query(Form).filter(Form.id == sync_request.form_id).first()
+        form = db.query(FormModel).filter(FormModel.id == sync_request.form_id).first()
         if not form:
             raise HTTPException(status_code=404, detail="Form not found")
         sync_log = etl.sync_form(form.kobo_form_id, sync_type=sync_request.sync_type)
@@ -1902,7 +1943,7 @@ def clear_form_data(
     db: Session = Depends(get_db),
 ):
     """Clear all submissions and related data for a form (admin only)."""
-    form = db.query(Form).filter(Form.id == form_id).first()
+    form = db.query(FormModel).filter(FormModel.id == form_id).first()
     if not form:
         raise HTTPException(status_code=404, detail="Form not found")
     
@@ -2032,7 +2073,7 @@ def get_form_schema(
     db: Session = Depends(get_db),
 ):
     """Get form schema for dynamic filter generation."""
-    form = db.query(Form).filter(Form.id == form_id).first()
+    form = db.query(FormModel).filter(FormModel.id == form_id).first()
     if not form:
         raise HTTPException(status_code=404, detail="Form not found")
     
@@ -2051,7 +2092,7 @@ def debug_form_schema(
     db: Session = Depends(get_db),
 ):
     """Debug endpoint to inspect form schema structure for label lookup."""
-    form = db.query(Form).filter(Form.id == form_id).first()
+    form = db.query(FormModel).filter(FormModel.id == form_id).first()
     if not form:
         raise HTTPException(status_code=404, detail="Form not found")
     
@@ -2119,7 +2160,7 @@ def get_form_filter_fields(
     db: Session = Depends(get_db),
 ):
     """Get available filter fields for a form based on its schema."""
-    form = db.query(Form).filter(Form.id == form_id).first()
+    form = db.query(FormModel).filter(FormModel.id == form_id).first()
     if not form:
         raise HTTPException(status_code=404, detail="Form not found")
     
@@ -2358,7 +2399,7 @@ def get_form_chart_data(
         if not dimension:
             raise HTTPException(status_code=400, detail="dimension is required")
         
-        form = db.query(Form).filter(Form.id == form_id).first()
+        form = db.query(FormModel).filter(FormModel.id == form_id).first()
         if not form:
             raise HTTPException(status_code=404, detail="Form not found")
         
@@ -2748,7 +2789,7 @@ def get_form_submissions(
     db: Session = Depends(get_db),
 ):
     """Get submissions for a specific form with optional filters."""
-    form = db.query(Form).filter(Form.id == form_id).first()
+    form = db.query(FormModel).filter(FormModel.id == form_id).first()
     if not form:
         raise HTTPException(status_code=404, detail="Form not found")
     
@@ -2769,7 +2810,7 @@ def get_form_map_data(
 ):
     """Get map data (locations) for a specific form with optional filtering."""
     try:
-        form = db.query(Form).filter(Form.id == form_id).first()
+        form = db.query(FormModel).filter(FormModel.id == form_id).first()
         if not form:
             raise HTTPException(status_code=404, detail="Form not found")
         
@@ -2886,7 +2927,7 @@ def get_form_grouped_data(
 ):
     """Get grouped/aggregated data for a form with hierarchical grouping support."""
     try:
-        form = db.query(Form).filter(Form.id == form_id).first()
+        form = db.query(FormModel).filter(FormModel.id == form_id).first()
         if not form:
             raise HTTPException(status_code=404, detail="Form not found")
         
@@ -3018,7 +3059,7 @@ async def websocket_form_updates(websocket: WebSocket, form_id: int):
     # Verify form exists
     db = next(get_db())
     try:
-        form = db.query(Form).filter(Form.id == form_id).first()
+        form = db.query(FormModel).filter(FormModel.id == form_id).first()
         if not form:
             await websocket.close(code=1008, reason="Form not found")
             return
@@ -3037,6 +3078,104 @@ async def websocket_form_updates(websocket: WebSocket, form_id: int):
     except Exception as e:
         logger.error(f"WebSocket error: {e}")
         manager.disconnect(websocket, form_id)
+
+
+# ============================================================================
+# Setup/Branding Endpoints
+# ============================================================================
+
+@app.post("/api/setup/branding", response_model=BrandingResponse)
+async def setup_branding(
+    company_name: str = Form(...),
+    primary_color: Optional[str] = Form(None),
+    secondary_color: Optional[str] = Form(None),
+    description: Optional[str] = Form(None),
+    file: Optional[UploadFile] = File(None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """
+    Setup branding for organization (admin only).
+    Can be called multiple times to update settings.
+    """
+    try:
+        if current_user.role != "admin":
+            raise HTTPException(status_code=403, detail="Only admin can setup branding")
+        
+        org = db.query(Organization).filter(Organization.id == current_user.organization_id).first()
+        if not org:
+            raise HTTPException(status_code=404, detail="Organization not found")
+        
+        branding = db.query(Branding).filter(Branding.organization_id == org.id).first()
+        
+        logo_path = None
+        if file:
+            uploads_dir = Path("uploads/logos")
+            uploads_dir.mkdir(parents=True, exist_ok=True)
+            
+            filename = f"{org.id}_{file.filename}"
+            file_path = uploads_dir / filename
+            
+            with open(file_path, "wb") as buffer:
+                shutil.copyfileobj(file.file, buffer)
+            
+            logo_path = f"uploads/logos/{filename}"
+            
+            old_logo = branding.logo_path if branding else None
+            if old_logo and os.path.exists(old_logo):
+                os.remove(old_logo)
+        
+        if branding:
+            branding.company_name = company_name
+            if primary_color:
+                branding.primary_color = primary_color
+            if secondary_color:
+                branding.secondary_color = secondary_color
+            if description is not None:
+                branding.description = description
+            if logo_path:
+                branding.logo_path = logo_path
+            branding.updated_at = datetime.utcnow()
+        else:
+            branding = Branding(
+                organization_id=org.id,
+                company_name=company_name,
+                logo_path=logo_path,
+                primary_color=primary_color,
+                secondary_color=secondary_color,
+                description=description,
+            )
+            db.add(branding)
+        
+        db.commit()
+        db.refresh(branding)
+        
+        return branding
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error setting up branding: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Error setting up branding")
+
+
+@app.get("/api/setup/branding", response_model=BrandingResponse)
+def get_branding(
+    db: Session = Depends(get_db),
+):
+    """Get branding (public endpoint)."""
+    try:
+        branding = db.query(Branding).first()
+        if not branding:
+            raise HTTPException(status_code=404, detail="Branding not configured")
+        
+        return branding
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching branding: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Error fetching branding")
 
 
 # ============================================================================

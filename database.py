@@ -1,10 +1,17 @@
 """Database configuration and session management."""
 import logging
-from sqlalchemy import create_engine
-from sqlalchemy.ext.declarative import declarative_base
+import sys
+import os
+from pathlib import Path
+
+from sqlalchemy import create_engine, inspect
 from sqlalchemy.orm import sessionmaker
 
+sys.path.insert(0, str(Path(__file__).parent))
+
 from config import settings
+# Import Base from models to avoid a separate base.py file
+from models import Base
 
 logger = logging.getLogger(__name__)
 
@@ -12,14 +19,11 @@ logger = logging.getLogger(__name__)
 engine = create_engine(
     settings.DATABASE_URL,
     connect_args={"check_same_thread": False} if "sqlite" in settings.DATABASE_URL else {},
-    echo=False,
+    echo=False,  # Set to True for SQL query logging (debug only)
 )
 
 # Create session factory
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-
-# Base class for models
-Base = declarative_base()
 
 
 def get_db():
@@ -32,37 +36,75 @@ def get_db():
 
 
 def init_db():
-    """Initialize database tables."""
-    import os
-    import sqlite3
-
-    # Create data directory if it doesn't exist (handle relative & absolute paths)
-    if settings.DATABASE_URL.startswith("sqlite:///"):
-        db_path = settings.DATABASE_URL.replace("sqlite:///", "", 1)
-
-        # Normalize to an absolute path for reliability on Windows
-        abs_db_path = os.path.abspath(db_path)
-        db_dir = os.path.dirname(abs_db_path)
-
-        if db_dir:
-            os.makedirs(db_dir, exist_ok=True)
-
-    Base.metadata.create_all(bind=engine)
-
-    # Add cleaned_data column if it doesn't exist (migration)
-    if "sqlite" in settings.DATABASE_URL:
-        try:
-            conn = engine.raw_connection()
-            cursor = conn.cursor()
-            cursor.execute("PRAGMA table_info(submissions)")
-            columns = [row[1] for row in cursor.fetchall()]
-
-            if "cleaned_data" not in columns:
-                cursor.execute("ALTER TABLE submissions ADD COLUMN cleaned_data TEXT")
-                conn.commit()
-
-            cursor.close()
-            conn.close()
-        except Exception as e:
-            logger.warning(f"Could not add cleaned_data column: {e}")
-
+    """Initialize database tables and default data."""
+    # IMPORTANT: Import models inside the function to avoid circular imports
+    from models import (
+        Organization, User, Branding, Form, RawSubmission, 
+        Submission, Indicator, UserPermission, SyncLog
+    )
+    
+    logger.info("Creating database tables...")
+    
+    # Create all tables
+    try:
+        Base.metadata.create_all(bind=engine)
+        logger.info("✅ Database tables created successfully")
+        
+        # Verify tables were created
+        inspector = inspect(engine)
+        tables = inspector.get_table_names()
+        logger.info(f"📋 Tables created: {', '.join(tables)}")
+        
+        # Check if 'users' table exists
+        if 'users' in tables:
+            logger.info("✅ 'users' table exists and is ready")
+        else:
+            logger.error("❌ 'users' table was NOT created!")
+            return False
+            
+    except Exception as e:
+        logger.error(f"❌ Error creating tables: {e}")
+        raise
+    
+    # Create default organization if it doesn't exist
+    db = SessionLocal()
+    try:
+        # Check if default organization exists
+        org_exists = db.query(Organization).filter(Organization.name == "Default").first()
+        if not org_exists:
+            org = Organization(
+                name="Default", 
+                description="Default organization for initial setup"
+            )
+            db.add(org)
+            db.commit()
+            logger.info("✅ Default organization created")
+        else:
+            logger.info("✅ Default organization already exists")
+            
+        # Create default admin user if it doesn't exist
+        user_exists = db.query(User).filter(User.username == "admin").first()
+        if not user_exists:
+            # WARNING: In production, use proper password hashing (bcrypt)
+            admin_user = User(
+                username="admin",
+                email="admin@example.com",
+                hashed_password="admin123",  # CHANGE THIS IN PRODUCTION!
+                full_name="Administrator",
+                role="admin",
+                organization_id=1,
+                is_active=True
+            )
+            db.add(admin_user)
+            db.commit()
+            logger.info("✅ Default admin user created (username: 'admin', password: 'admin123')")
+        else:
+            logger.info("✅ Default admin user already exists")
+            
+    except Exception as e:
+        logger.error(f"⚠️ Error creating default data: {e}")
+        db.rollback()
+    finally:
+        db.close()
+    
+    return True
