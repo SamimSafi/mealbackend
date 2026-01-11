@@ -60,6 +60,7 @@ from schemas import (
     BrandingUpdate,
     BrandingResponse,
     BrandingDetailResponse,
+    BrandingJSON,
 )
 from auth import (
     get_current_active_user,
@@ -3085,51 +3086,76 @@ async def websocket_form_updates(websocket: WebSocket, form_id: int):
 # ============================================================================
 
 @app.post("/api/setup/branding", response_model=BrandingResponse)
-async def setup_branding(
-    company_name: str = Form(...),
-    primary_color: Optional[str] = Form(None),
-    secondary_color: Optional[str] = Form(None),
-    description: Optional[str] = Form(None),
-    file: Optional[UploadFile] = File(None),
+def setup_branding(
+    payload: BrandingJSON,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
     """
     Setup branding for organization (admin only).
-    Can be called multiple times to update settings.
+    Accepts JSON `BrandingJSON` with optional `file_base64` + `file_name`.
     """
     try:
         if current_user.role != "admin":
             raise HTTPException(status_code=403, detail="Only admin can setup branding")
-        
-        org = db.query(Organization).filter(Organization.id == current_user.organization_id).first()
-        if not org:
-            raise HTTPException(status_code=404, detail="Organization not found")
-        
-        branding = db.query(Branding).filter(Branding.organization_id == org.id).first()
-        
+
+        # Use a single global branding entry (no organization required)
+        branding = db.query(Branding).first()
+
+        company_name = payload.company_name
+        primary_color = payload.primary_color
+        secondary_color = payload.secondary_color
+        description = payload.description
         logo_path = None
-        if file:
-            uploads_dir = Path("uploads/logos")
-            uploads_dir.mkdir(parents=True, exist_ok=True)
-            
-            filename = f"{org.id}_{file.filename}"
-            file_path = uploads_dir / filename
-            
-            with open(file_path, "wb") as buffer:
-                shutil.copyfileobj(file.file, buffer)
-            
-            logo_path = f"uploads/logos/{filename}"
-            
-            old_logo = branding.logo_path if branding else None
-            if old_logo and os.path.exists(old_logo):
-                os.remove(old_logo)
-        
+
+        # Treat empty strings as no-file provided
+        fb64 = None
+        if payload.file_base64 is not None:
+            try:
+                fb64 = payload.file_base64.strip() if isinstance(payload.file_base64, str) else None
+                if fb64 == "":
+                    fb64 = None
+            except Exception:
+                fb64 = None
+
+        if fb64 and payload.file_name:
+            try:
+                from base64 import b64decode
+                from uuid import uuid4
+
+                uploads_dir = Path("uploads/logos")
+                uploads_dir.mkdir(parents=True, exist_ok=True)
+
+                filename = f"{uuid4().hex}_{payload.file_name}"
+                file_path = uploads_dir / filename
+
+                with open(file_path, "wb") as buffer:
+                    buffer.write(b64decode(fb64))
+
+                logo_path = f"uploads/logos/{filename}"
+
+                # remove old logo (use safe path check)
+                old_logo = branding.logo_path if branding else None
+                if old_logo:
+                    try:
+                        old_path = Path(old_logo)
+                        if old_path.exists():
+                            old_path.unlink()
+                    except Exception:
+                        pass
+            except Exception as e:
+                logger.error(f"Error saving base64 file: {e}")
+                raise HTTPException(status_code=400, detail="Invalid base64 file data")
+
+        # company_name is required
+        if not company_name:
+            raise HTTPException(status_code=422, detail="company_name is required + ${company_name}")
+
         if branding:
             branding.company_name = company_name
-            if primary_color:
+            if primary_color is not None:
                 branding.primary_color = primary_color
-            if secondary_color:
+            if secondary_color is not None:
                 branding.secondary_color = secondary_color
             if description is not None:
                 branding.description = description
@@ -3137,8 +3163,16 @@ async def setup_branding(
                 branding.logo_path = logo_path
             branding.updated_at = datetime.utcnow()
         else:
+            # Ensure we have an organization id to satisfy DB constraints
+            org = db.query(Organization).filter(Organization.name == "Default").first()
+            if not org:
+                org = Organization(name="Default", description="Default organization")
+                db.add(org)
+                db.commit()
+                db.refresh(org)
+
             branding = Branding(
-                organization_id=org.id,
+                organization_id=org.id if org else None,
                 company_name=company_name,
                 logo_path=logo_path,
                 primary_color=primary_color,
@@ -3146,12 +3180,17 @@ async def setup_branding(
                 description=description,
             )
             db.add(branding)
-        
-        db.commit()
-        db.refresh(branding)
-        
-        return branding
-    
+
+        try:
+            db.commit()
+            db.refresh(branding)
+            return branding
+        except Exception as e:
+            db.rollback()
+            logger.error(f"DB error saving branding: {e}", exc_info=True)
+            # Surface the actual DB error to help debugging
+            raise HTTPException(status_code=500, detail=f"Error setting up branding: {str(e)}")
+
     except HTTPException:
         raise
     except Exception as e:

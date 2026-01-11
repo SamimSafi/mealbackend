@@ -41,7 +41,8 @@ class Branding(Base):
     __tablename__ = "branding"
 
     id = Column(Integer, primary_key=True, index=True)
-    organization_id = Column(Integer, ForeignKey("organizations.id"), unique=True, nullable=False)
+    # Allow branding without an organization (global branding)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), unique=True, nullable=True)
     company_name = Column(String(255), nullable=False)
     logo_path = Column(String(500), nullable=True)
     primary_color = Column(String(50), nullable=True)

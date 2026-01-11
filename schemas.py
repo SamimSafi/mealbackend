@@ -384,6 +384,12 @@ class BrandingCreate(BrandingBase):
     organization_id: int
 
 
+# JSON variant for branding that may include a base64-encoded file
+class BrandingJSON(BrandingBase):
+    file_base64: Optional[str] = None
+    file_name: Optional[str] = None
+
+
 class BrandingUpdate(BaseModel):
     """Branding update schema."""
 
