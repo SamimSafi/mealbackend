@@ -40,10 +40,14 @@ def init_db():
     # IMPORTANT: Import models inside the function to avoid circular imports
     from models import (
         Organization, User, Branding, Form, RawSubmission, 
-        Submission, Indicator, UserPermission, SyncLog
+        Submission, Indicator, UserPermission, SyncLog,
+        KPIDefinition, KPIValue, ReportCache, FormFieldMapping,
+        DatabaseMigration, Document
     )
+    from auth import get_password_hash
+    from migrations import check_schema_changes
     
-    logger.info("Creating database tables...")
+    logger.info("Initializing database...")
     
     # Create all tables
     try:
@@ -85,11 +89,10 @@ def init_db():
         # Create default admin user if it doesn't exist
         user_exists = db.query(User).filter(User.username == "admin").first()
         if not user_exists:
-            # WARNING: In production, use proper password hashing (bcrypt)
             admin_user = User(
                 username="admin",
                 email="admin@example.com",
-                hashed_password="admin123",  # CHANGE THIS IN PRODUCTION!
+                hashed_password=get_password_hash("admin123"),
                 full_name="Administrator",
                 role="admin",
                 organization_id=1,
@@ -108,3 +111,58 @@ def init_db():
         db.close()
     
     return True
+
+
+def migrate_db():
+    """
+    Run database migrations and schema updates.
+    Called automatically on app startup.
+    """
+    from models import DatabaseMigration, Organization, User
+    from auth import get_password_hash
+    from migrations import check_schema_changes
+    
+    db = SessionLocal()
+    try:
+        logger.info("Running database migrations...")
+        
+        if not check_schema_changes(engine, Base):
+            logger.info("Schema changes detected, recreating tables...")
+            Base.metadata.create_all(bind=engine)
+            logger.info("Tables recreated successfully")
+        
+        org_exists = db.query(Organization).filter(Organization.name == "Default").first()
+        if not org_exists:
+            org = Organization(
+                name="Default",
+                description="Default organization for initial setup"
+            )
+            db.add(org)
+            db.commit()
+            db.refresh(org)
+            logger.info("Default organization created")
+        
+        admin_exists = db.query(User).filter(User.username == "admin").first()
+        if not admin_exists:
+            admin = User(
+                username="admin",
+                email="admin@example.com",
+                hashed_password=get_password_hash("admin123"),
+                full_name="Administrator",
+                role="admin",
+                organization_id=1,
+                is_active=True
+            )
+            db.add(admin)
+            db.commit()
+            logger.info("Default admin user created")
+        
+        logger.info("Database migration complete")
+        return True
+        
+    except Exception as e:
+        logger.error(f"Error during migration: {e}")
+        db.rollback()
+        return False
+    finally:
+        db.close()

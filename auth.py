@@ -15,11 +15,20 @@ from models import User
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """Verify a password against its hash."""
-    if isinstance(hashed_password, str):
-        hashed_password = hashed_password.encode('utf-8')
-    if isinstance(plain_password, str):
-        plain_password = plain_password.encode('utf-8')
-    return bcrypt.checkpw(plain_password, hashed_password)
+    try:
+        if isinstance(hashed_password, str):
+            hashed_password = hashed_password.encode('utf-8')
+        if isinstance(plain_password, str):
+            plain_password = plain_password.encode('utf-8')
+        
+        if not hashed_password.startswith(b'$2'):
+            print(f"[AUTH] Invalid bcrypt hash format detected - hash does not start with $2")
+            return False
+            
+        return bcrypt.checkpw(plain_password, hashed_password)
+    except (ValueError, TypeError) as e:
+        print(f"[AUTH] Password verification error: {str(e)}")
+        return False
 
 
 def get_password_hash(password: str) -> str:

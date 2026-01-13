@@ -1,6 +1,7 @@
 """Database models."""
 from datetime import datetime
 from enum import Enum
+import uuid
 
 from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, String, Text, JSON
 from sqlalchemy.orm import relationship
@@ -112,6 +113,7 @@ class Form(Base):
     raw_submissions = relationship("RawSubmission", back_populates="form", cascade="all, delete-orphan")
     submissions = relationship("Submission", back_populates="form", cascade="all, delete-orphan")
     indicators = relationship("Indicator", back_populates="form", cascade="all, delete-orphan")
+    kpi_values = relationship("KPIValue", back_populates="form", cascade="all, delete-orphan")
 
 
 class RawSubmission(Base):
@@ -188,4 +190,140 @@ class SyncLog(Base):
     error_message = Column(Text, nullable=True)
     started_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     completed_at = Column(DateTime, nullable=True)
+
+
+class KPIDefinition(Base):
+    """Formal KPI metadata and definitions."""
+
+    __tablename__ = "kpi_definitions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    kpi_code = Column(String(50), unique=True, index=True, nullable=False)
+    label = Column(String(255), nullable=False)
+    description = Column(Text, nullable=True)
+    unit = Column(String(20), nullable=False)  # %, count, days, kg, etc.
+    formula_text = Column(Text, nullable=True)  # Human-readable formula
+
+    computation_logic = Column(JSON, nullable=True)  # How to compute the KPI
+    baseline_value = Column(Float, nullable=True)
+    target_value = Column(Float, nullable=True)
+    acceptable_range_min = Column(Float, nullable=True)
+    acceptable_range_max = Column(Float, nullable=True)
+
+    report_category = Column(String(50), nullable=False)  # WASH, Nutrition, Protection, Education, Food Security, Livelihoods
+    sub_category = Column(String(100), nullable=True)
+    indicator_type = Column(String(50), nullable=True)  # outcome, output, process
+
+    is_active = Column(Boolean, default=True, nullable=False)
+    is_custom = Column(Boolean, default=False, nullable=False)  # Custom vs standard
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    values = relationship("KPIValue", back_populates="definition", cascade="all, delete-orphan")
+
+
+class KPIValue(Base):
+    """Computed KPI values with time-series and geographic support."""
+
+    __tablename__ = "kpi_values"
+
+    id = Column(Integer, primary_key=True, index=True)
+    kpi_definition_id = Column(Integer, ForeignKey("kpi_definitions.id"), nullable=False, index=True)
+    form_id = Column(Integer, ForeignKey("forms.id"), nullable=True, index=True)
+
+    geo_dimension_1 = Column(String(100), nullable=True, index=True)
+    geo_dimension_2 = Column(String(100), nullable=True, index=True)
+    geo_dimension_3 = Column(String(100), nullable=True, index=True)
+
+    period_start = Column(DateTime, nullable=False, index=True)
+    period_end = Column(DateTime, nullable=False)
+    period_granularity = Column(String(20), nullable=False)  # daily, weekly, monthly, quarterly, annual
+
+    value = Column(Float, nullable=False)
+    baseline = Column(Float, nullable=True)
+    target = Column(Float, nullable=True)
+    sample_size = Column(Integer, nullable=False)  # Total submissions analyzed
+    valid_sample_size = Column(Integer, nullable=False)  # After filtering/validation
+
+    percent_complete = Column(Float, nullable=True)
+    has_errors = Column(Boolean, default=False, nullable=False)
+
+    computed_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    is_cached = Column(Boolean, default=False, nullable=False)
+    cache_expires_at = Column(DateTime, nullable=True)
+
+    definition = relationship("KPIDefinition", back_populates="values")
+    form = relationship("Form")
+
+
+class ReportCache(Base):
+    """Cache pre-computed reports for performance."""
+
+    __tablename__ = "report_cache"
+
+    id = Column(Integer, primary_key=True, index=True)
+    report_type = Column(String(50), nullable=False, index=True)
+    filters_hash = Column(String(64), unique=True, nullable=False, index=True)
+    form_id = Column(Integer, ForeignKey("forms.id"), nullable=True, index=True)
+
+    result_json = Column(JSON, nullable=False)
+    compressed = Column(Boolean, default=False, nullable=False)
+    size_bytes = Column(Integer, nullable=True)
+
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    expires_at = Column(DateTime, nullable=False, index=True)
+    hit_count = Column(Integer, default=0, nullable=False)
+
+
+class FormFieldMapping(Base):
+    """Maps form fields to standard report dimensions (age, gender, location, etc.)."""
+
+    __tablename__ = "form_field_mappings"
+
+    id = Column(Integer, primary_key=True, index=True)
+    form_id = Column(Integer, ForeignKey("forms.id"), nullable=False, unique=True, index=True)
+
+    age_field = Column(String(255), nullable=True)  # e.g., "demographics/age" or NULL if not applicable
+    gender_field = Column(String(255), nullable=True)
+    household_size_field = Column(String(255), nullable=True)
+    location_field = Column(String(255), nullable=True)
+    
+    # Custom mappings for Child Protection / Education
+    custom_mappings = Column(JSON, nullable=True)  # e.g., {"grade_level": "education/grade", "protection_status": "..."}
+    
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    
+    form = relationship("Form")
+
+
+class DatabaseMigration(Base):
+    """Track database schema migrations and initializations."""
+
+    __tablename__ = "database_migrations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    initializer_guid = Column(String(36), unique=True, nullable=False, index=True, default=lambda: str(uuid.uuid4()))
+    version = Column(Integer, nullable=False, index=True)
+    name = Column(String(255), nullable=False)
+    description = Column(Text, nullable=True)
+    applied_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class Document(Base):
+    """Track documents with unique identifiers."""
+
+    __tablename__ = "documents"
+
+    id = Column(Integer, primary_key=True, index=True)
+    document_guid = Column(String(36), unique=True, nullable=False, index=True, default=lambda: str(uuid.uuid4()))
+    title = Column(String(500), nullable=False)
+    description = Column(Text, nullable=True)
+    document_type = Column(String(100), nullable=False)  # e.g., "submission", "report", "export"
+    entity_id = Column(Integer, nullable=True)  # Reference to the entity (submission_id, etc.)
+    entity_type = Column(String(100), nullable=True)  # Type of entity (submission, form, etc.)
+    doc_metadata = Column(JSON, nullable=True)  # Additional metadata
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 

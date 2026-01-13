@@ -26,8 +26,11 @@ from sqlalchemy import func, desc
 from jose import jwt
 
 from config import settings
-from database import get_db, init_db
-from models import User, Form as FormModel, Submission, Indicator, SyncLog, UserPermission, RawSubmission, Organization, Branding
+from database import get_db, init_db, migrate_db
+from models import (
+    User, Form as FormModel, Submission, Indicator, SyncLog, UserPermission, 
+    RawSubmission, Organization, Branding, KPIDefinition, KPIValue, ReportCache, FormFieldMapping, Document
+)
 from typing import Optional
 from schemas import (
     UserCreate,
@@ -61,6 +64,26 @@ from schemas import (
     BrandingResponse,
     BrandingDetailResponse,
     BrandingJSON,
+    ReportFiltersRequest,
+    SurveySummaryResponse,
+    IndicatorReportResponse,
+    DemographicsReportResponse,
+    GeospatialReportResponse,
+    TrendReportResponse,
+    ProgramComparisonResponse,
+    KPIDefinitionResponse,
+    TableViewResponse,
+    TableColumnDefinition,
+    PolarAreaItem,
+    PolarAreaChartRequest,
+    PolarAreaChartResponse,
+    AggregateReportResponse,
+    GenderRatioItem,
+)
+from dynamic_field_detector import (
+    detect_province_field,
+    detect_gender_field,
+    get_field_data,
 )
 from auth import (
     get_current_active_user,
@@ -79,9 +102,11 @@ from typing import Optional, Any
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Import WebSocket manager
 from websocket_manager import manager
 from discover import discover_router
+from report_service import ReportService
+from report_filters import FilterContext, LocationFilter
+from kpi_engine import KPIEngine
 
 
 
@@ -90,39 +115,10 @@ async def lifespan(app: FastAPI):
     """Lifespan context manager for startup/shutdown."""
     try:
         logger.info("Application starting...")
-        
-        db = next(get_db())
-        try:
-            # Check and create default organization
-            org = db.query(Organization).filter(Organization.name == "Default").first()
-            if not org:
-                org = Organization(name="Default", description="Default organization")
-                db.add(org)
-                db.commit()
-                db.refresh(org)
-                logger.info("Default organization created")
+        logger.info("Running database migrations and initialization...")
+        migrate_db()
+        logger.info("Database ready")
             
-            # Check and create default admin user
-            admin = db.query(User).filter(User.username == "admin").first()
-            if not admin:
-                admin = User(
-                    username="admin",
-                    email="admin@example.com",
-                    hashed_password=get_password_hash("admin123"),
-                    full_name="Administrator",
-                    role="admin",
-                    organization_id=org.id,
-                    is_active=True,
-                )
-                db.add(admin)
-                db.commit()
-                logger.info("Default admin user created (username: admin, password: admin123)")
-            elif not admin.organization_id:
-                admin.organization_id = org.id
-                db.commit()
-                logger.info("Admin user linked to default organization")
-        finally:
-            db.close()
     except Exception as e:
         logger.error(f"Database initialization error: {e}", exc_info=True)
     
@@ -337,21 +333,48 @@ def debug_token(token: str):
 @app.post("/api/auth/login", response_model=Token)
 def login(login_data: LoginRequest, db: Session = Depends(get_db)):
     """Login endpoint that accepts a JSON body with username/password."""
-    user = db.query(User).filter(User.username == login_data.username).first()
-    if not user or not verify_password(login_data.password, user.hashed_password):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect username or password",
+    try:
+        logger.info(f"[LOGIN] Attempting login for user: {login_data.username}")
+        
+        user = db.query(User).filter(User.username == login_data.username).first()
+        if not user:
+            logger.warning(f"[LOGIN] User not found: {login_data.username}")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Incorrect username or password",
+            )
+        
+        logger.info(f"[LOGIN] User found: {user.username}, checking password...")
+        logger.info(f"[LOGIN] Hash length: {len(user.hashed_password) if user.hashed_password else 0}")
+        
+        if not verify_password(login_data.password, user.hashed_password):
+            logger.warning(f"[LOGIN] Password verification failed for: {login_data.username}")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Incorrect username or password",
+            )
+        
+        logger.info(f"[LOGIN] Password verified for: {login_data.username}")
+        
+        if not user.is_active:
+            logger.warning(f"[LOGIN] User is inactive: {login_data.username}")
+            raise HTTPException(status_code=400, detail="Inactive user")
+        
+        logger.info(f"[LOGIN] Creating access token for: {login_data.username}")
+        access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+        access_token = create_access_token(
+            data={"sub": user.username}, expires_delta=access_token_expires
         )
-    
-    if not user.is_active:
-        raise HTTPException(status_code=400, detail="Inactive user")
-    
-    access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
-    access_token = create_access_token(
-        data={"sub": user.username}, expires_delta=access_token_expires
-    )
-    return {"access_token": access_token, "token_type": "bearer"}
+        logger.info(f"[LOGIN] Login successful for: {login_data.username}")
+        return {"access_token": access_token, "token_type": "bearer"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[LOGIN] Unexpected error: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Login error: {str(e)}"
+        )
 
 
 @app.post("/api/auth/register", response_model=UserResponse)
@@ -662,7 +685,14 @@ def list_submissions(
         query = query.filter(Submission.form_id == form_id)
     
     submissions = query.order_by(desc(Submission.created_at)).offset(skip).limit(limit).all()
-    return submissions
+    
+    result = []
+    for s in submissions:
+        response = SubmissionResponse.model_validate(s)
+        response.submission_data = s.cleaned_data or s.submission_data or {}
+        result.append(response)
+    
+    return result
 
 
 @app.get("/form/{form_id}/submissions", response_model=list[SubmissionResponse])
@@ -690,7 +720,10 @@ def get_submission(
     submission = db.query(Submission).filter(Submission.id == submission_id).first()
     if not submission:
         raise HTTPException(status_code=404, detail="Submission not found")
-    return submission
+    
+    response = SubmissionResponse.model_validate(submission)
+    response.submission_data = submission.cleaned_data or submission.submission_data or {}
+    return response
 
 
 # ============================================================================
@@ -841,6 +874,67 @@ def get_form_indicators_summary(
     }
 
 
+@app.get("/form/{form_id}/aggregate", response_model=AggregateReportResponse)
+def get_form_aggregate_report(
+    form_id: int,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Get aggregate report for a form with:
+    - Total Survey (total submissions)
+    - Today's submissions
+    - Total Provinces (auto-detected)
+    - Gender Ratio (auto-detected and accurate)
+    """
+    form = db.query(FormModel).filter(FormModel.id == form_id).first()
+    if not form:
+        raise HTTPException(status_code=404, detail="Form not found")
+
+    submissions = db.query(Submission).filter(Submission.form_id == form_id).all()
+    
+    total_survey = len(submissions)
+    
+    today = date_type.today()
+    todays_submissions = 0
+    for sub in submissions:
+        if sub.submitted_at:
+            submitted_date = sub.submitted_at.date() if hasattr(sub.submitted_at, 'date') else sub.submitted_at
+            if submitted_date == today:
+                todays_submissions += 1
+        elif sub.created_at:
+            created_date = sub.created_at.date() if hasattr(sub.created_at, 'date') else sub.created_at
+            if created_date == today:
+                todays_submissions += 1
+    
+    province_field = detect_province_field(form, submissions)
+    gender_field = detect_gender_field(form, submissions)
+    
+    province_counts = get_field_data(submissions, province_field) if province_field else {}
+    gender_counts = get_field_data(submissions, gender_field) if gender_field else {}
+    
+    total_provinces = len(province_counts)
+    
+    gender_ratio = []
+    total_with_gender = sum(gender_counts.values()) if gender_counts else 0
+    for gender, count in sorted(gender_counts.items()):
+        percentage = (count / total_with_gender * 100) if total_with_gender > 0 else 0
+        gender_ratio.append(GenderRatioItem(
+            gender=gender.title() if gender else "Unknown",
+            count=count,
+            percentage=round(percentage, 2)
+        ))
+    
+    return AggregateReportResponse(
+        form_id=form_id,
+        total_survey=total_survey,
+        todays_submissions=todays_submissions,
+        total_provinces=total_provinces,
+        gender_ratio=gender_ratio,
+        generated_at=datetime.now()
+    )
+
+
 @app.post("/form/{form_id}/aggregate")
 def aggregate_form_data(
     form_id: int,
@@ -851,7 +945,13 @@ def aggregate_form_data(
     """
     Generic aggregate endpoint for a form.
 
-    This powers flexible cards/charts similar to survey dashboards:
+    If metrics is empty or not provided, returns general aggregate report:
+    - Total Survey
+    - Today's submissions
+    - Total Provinces
+    - Gender Ratio
+
+    Otherwise, computes custom metrics:
     - filters: equality filters on cleaned/submission data
     - group_by: list of fields to group by
     - metrics: list of metrics to compute per group
@@ -860,10 +960,51 @@ def aggregate_form_data(
     if not form:
         raise HTTPException(status_code=404, detail="Form not found")
 
-    # Base query
-    submissions_query = db.query(Submission).filter(Submission.form_id == form_id)
-    submissions = submissions_query.all()
+    submissions = db.query(Submission).filter(Submission.form_id == form_id).all()
+    
+    if not request.metrics:
+        total_survey = len(submissions)
+        
+        today = date_type.today()
+        todays_submissions = 0
+        for sub in submissions:
+            if sub.submitted_at:
+                submitted_date = sub.submitted_at.date() if hasattr(sub.submitted_at, 'date') else sub.submitted_at
+                if submitted_date == today:
+                    todays_submissions += 1
+            elif sub.created_at:
+                created_date = sub.created_at.date() if hasattr(sub.created_at, 'date') else sub.created_at
+                if created_date == today:
+                    todays_submissions += 1
+        
+        province_field = detect_province_field(form, submissions)
+        gender_field = detect_gender_field(form, submissions)
+        
+        province_counts = get_field_data(submissions, province_field) if province_field else {}
+        gender_counts = get_field_data(submissions, gender_field) if gender_field else {}
+        
+        total_provinces = len(province_counts)
+        
+        gender_ratio = []
+        total_with_gender = sum(gender_counts.values()) if gender_counts else 0
+        for gender, count in sorted(gender_counts.items()):
+            percentage = (count / total_with_gender * 100) if total_with_gender > 0 else 0
+            gender_ratio.append(GenderRatioItem(
+                gender=gender.title() if gender else "Unknown",
+                count=count,
+                percentage=round(percentage, 2)
+            ))
+        
+        return AggregateReportResponse(
+            form_id=form_id,
+            total_survey=total_survey,
+            todays_submissions=todays_submissions,
+            total_provinces=total_provinces,
+            gender_ratio=gender_ratio,
+            generated_at=datetime.now()
+        )
 
+    # Custom metrics logic (when metrics is provided)
     # Apply filters (simple equality / IN logic, similar to chart endpoints)
     filters = request.filters or {}
     if filters:
@@ -1432,20 +1573,26 @@ def generate_box_plot(
             continue
 
     if not values:
-        # Provide detailed error message with all debugging info
-        error_msg = (
-            f"No numeric data available for column '{request.column}'. "
-            f"Form ID: {request.form_id}, Total submissions: {len(submissions)}, "
-            f"Checked after filters: {total_checked}, Empty values: {empty_count}, "
-            f"Non-numeric values: {non_numeric_count}."
+        logger.debug(f"No numeric data for column '{request.column}' - returning empty box plot")
+        return BoxPlotResponse(
+            column=request.column,
+            q1=0,
+            median=0,
+            q3=0,
+            whisker_min=0,
+            whisker_max=0,
+            outliers=[],
+            iqr=0,
+            lower_bound=0,
+            upper_bound=0,
+            count=0,
+            stats={
+                "total_submissions": len(submissions),
+                "checked_after_filters": total_checked,
+                "empty_values": empty_count,
+                "non_numeric_values": non_numeric_count,
+            }
         )
-        if sample_payload_keys:
-            # Filter out internal keys starting with _
-            visible_keys = [k for k in sample_payload_keys if not k.startswith('_')][:15]
-            error_msg += f" Available fields (sample): {visible_keys}"
-        
-        logger.warning(f"Box plot error: {error_msg}")
-        raise HTTPException(status_code=400, detail=error_msg)
 
     # Sort values for quantile computations
     values.sort()
@@ -1673,34 +1820,20 @@ def generate_bar_chart(
             counts[category] = counts.get(category, 0) + 1
 
     if not counts:
-        # Provide helpful error message with detailed debugging info
-        sample_sub = next((s for s in submissions if s.cleaned_data or s.submission_data), None)
-        sample_keys = []
-        if sample_sub:
-            payload = sample_sub.cleaned_data or sample_sub.submission_data
-            if payload and isinstance(payload, dict):
-                sample_keys = [k for k in list(payload.keys())[:30] if not k.startswith('_')]
-        
-        # Try to find similar field names
-        similar_fields = []
-        if sample_keys:
-            field_lower = group_by_field.lower()
-            for key in sample_keys:
-                if field_lower in key.lower() or key.lower() in field_lower:
-                    similar_fields.append(key)
-        
-        error_msg = (
-            f"No data found for group_by field '{group_by_field}'. "
-            f"Total submissions: {len(submissions)}. "
+        logger.debug(f"No data found for group_by field '{group_by_field}' - returning empty chart")
+        return BarChartResponse(
+            form_id=request.form_id,
+            field=group_by_field,
+            field_label=group_by_field.split("/")[-1].replace("_", " ").title(),
+            items=[],
+            stats=ChartStats(
+                total_submissions=len(submissions),
+                submissions_included=0,
+                unique_values=0,
+                most_common=None,
+                least_common=None,
+            ),
         )
-        if sample_keys:
-            error_msg += f"Available fields: {sample_keys[:20]}. "
-        if similar_fields:
-            error_msg += f"Similar fields found: {similar_fields}. "
-        error_msg += "Check if the field name matches exactly (case-sensitive)."
-        
-        logger.warning(f"Bar chart error: {error_msg}")
-        raise HTTPException(status_code=400, detail=error_msg)
 
     # Calculate statistics
     total_submissions_included = sum(counts.values())
@@ -1741,6 +1874,185 @@ def generate_bar_chart(
         total_submissions=total_submissions_included,
         unique_values=unique_values_count,
         field_label=field_label
+    )
+
+
+@app.post("/api/charts/polar_area", response_model=PolarAreaChartResponse)
+def generate_polar_area_chart(
+    request: PolarAreaChartRequest,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Polar area chart for categorical data.
+    
+    Returns frequency counts and percentages for a field's values,
+    suitable for rendering a polar area (radial bar) chart.
+    """
+    form = db.query(FormModel).filter(FormModel.id == request.form_id).first()
+    if not form:
+        raise HTTPException(status_code=404, detail="Form not found")
+
+    submissions = db.query(Submission).filter(Submission.form_id == form.id).all()
+    filters = request.filters or {}
+    
+    counts: dict[str, int] = {}
+    total_with_data = 0
+
+    for sub in submissions:
+        payload = sub.cleaned_data or sub.submission_data
+        if not payload or not isinstance(payload, dict):
+            continue
+
+        # Apply filters
+        matches = True
+        for fname, fval in filters.items():
+            if fval is None or fval == "" or (isinstance(fval, list) and len(fval) == 0):
+                continue
+            v = get_nested_field_value(payload, fname)
+            if isinstance(fval, list):
+                if v not in fval:
+                    matches = False
+                    break
+            else:
+                if str(v) != str(fval):
+                    matches = False
+                    break
+        if not matches:
+            continue
+
+        # Extract field value
+        raw_val = None
+        if isinstance(payload, dict):
+            raw_val = payload.get(request.field)
+        
+        if raw_val in (None, ""):
+            raw_val = get_nested_field_value(payload, request.field)
+        
+        # Try field name variations if not found
+        if raw_val in (None, ""):
+            if '/' not in request.field:
+                alternatives = [
+                    f"info/{request.field}",
+                    f"beneficiary/{request.field}",
+                    f"group/{request.field}",
+                ]
+                for alt in alternatives:
+                    raw_val = get_nested_field_value(payload, alt)
+                    if raw_val not in (None, ""):
+                        break
+        
+        if raw_val in (None, ""):
+            continue
+        
+        total_with_data += 1
+        
+        # Normalize the value
+        category = str(raw_val).strip()
+        
+        # Try to convert code to label using schema
+        if form.form_schema and category:
+            original_category = category
+            
+            question_map, choice_map = build_schema_maps(form.form_schema)
+            
+            field_name_variations = [
+                request.field,
+                request.field.lower(),
+                request.field.replace("/", "_"),
+                request.field.replace("/", "_").lower(),
+                request.field.split("/")[-1],
+                request.field.split("/")[-1].lower(),
+            ]
+            
+            field_meta = None
+            for var_name in field_name_variations:
+                if var_name in question_map:
+                    field_meta = question_map[var_name]
+                    break
+                for q_name, q_meta in question_map.items():
+                    if var_name in q_name.lower() or q_name.lower().endswith(var_name):
+                        field_meta = q_meta
+                        break
+                if field_meta:
+                    break
+            
+            if field_meta and field_meta.get("list_name"):
+                list_name = field_meta["list_name"]
+                if list_name in choice_map:
+                    code_lower = str(category).lower()
+                    for code_key, label_value in choice_map[list_name].items():
+                        if str(code_key).lower() == code_lower:
+                            category = label_value
+                            break
+            
+            if category == original_category:
+                label = get_choice_label(form.form_schema, request.field, category)
+                if label != category:
+                    category = label
+                else:
+                    label = get_choice_label_dynamic(form.form_schema, request.field, category)
+                    if label != category:
+                        category = label
+        
+        if category:
+            counts[category] = counts.get(category, 0) + 1
+
+    if not counts:
+        return PolarAreaChartResponse(
+            form_id=request.form_id,
+            field_name=request.field,
+            field_label=request.field.split("/")[-1].replace("_", " ").title(),
+            items=[],
+            total_submissions=len(submissions),
+            total_with_data=0,
+            without_data=len(submissions),
+            unique_values=0,
+        )
+
+    # Calculate statistics
+    total = sum(counts.values())
+    
+    # Get human-readable label for the field
+    field_label = None
+    if form.form_schema:
+        try:
+            schema = form.form_schema if isinstance(form.form_schema, dict) else json.loads(form.form_schema) if isinstance(form.form_schema, str) else {}
+            content = schema.get("content", {})
+            survey = content.get("survey", [])
+            for field in survey:
+                field_name = field.get("name", "")
+                if field_name == request.field or field_name.replace("/", "_") == request.field.replace("/", "_"):
+                    label = field.get("label", "")
+                    if isinstance(label, list) and len(label) > 0:
+                        field_label = label[0]
+                    elif isinstance(label, str):
+                        field_label = label
+                    break
+        except Exception:
+            pass
+    
+    if not field_label:
+        field_label = request.field.split("/")[-1].replace("_", " ").title()
+
+    items = [
+        PolarAreaItem(
+            label=cat,
+            value=count,
+            percentage=round((count / total * 100), 2)
+        )
+        for cat, count in sorted(counts.items(), key=lambda x: x[1], reverse=True)
+    ]
+
+    return PolarAreaChartResponse(
+        form_id=request.form_id,
+        field_name=request.field,
+        field_label=field_label,
+        items=items,
+        total_submissions=len(submissions),
+        total_with_data=total_with_data,
+        without_data=len(submissions) - total_with_data,
+        unique_values=len(counts),
     )
 
 
@@ -1909,6 +2221,280 @@ def get_accountability_dashboard(
 
 
 # ============================================================================
+# NGO Reports & Dashboards - NEW
+# ============================================================================
+
+@app.get("/api/reports/survey-summary/{form_id}")
+def get_survey_summary(
+    form_id: int,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Get survey summary report for a form.
+    
+    Includes: total submissions, completion rate, question-wise summaries.
+    """
+    try:
+        filters_request = {
+            "date_from": date_from,
+            "date_to": date_to,
+            "locations": [],
+            "form_ids": [form_id],
+            "field_filters": {},
+            "exclude_incomplete": False,
+        }
+        
+        report_service = ReportService(db)
+        result = report_service.get_survey_summary(form_id, filters_request)
+        
+        if "error" in result:
+            raise HTTPException(status_code=404, detail=result["error"])
+        
+        return result
+    except Exception as e:
+        logger.error(f"Error generating survey summary: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/reports/indicators")
+def get_indicator_report(
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    category: Optional[str] = None,
+    form_ids: Optional[str] = None,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Get KPI indicator report with all key metrics.
+    
+    Supports filtering by date range, category (WASH, Nutrition, Protection, etc.), and form IDs.
+    """
+    try:
+        form_id_list = []
+        if form_ids:
+            form_id_list = [int(x) for x in form_ids.split(",")]
+        
+        filters_request = {
+            "date_from": date_from,
+            "date_to": date_to,
+            "locations": [],
+            "form_ids": form_id_list,
+            "field_filters": {},
+            "exclude_incomplete": False,
+        }
+        
+        report_service = ReportService(db)
+        result = report_service.get_indicator_report(
+            filters_request,
+            category=category
+        )
+        
+        if "error" in result:
+            raise HTTPException(status_code=400, detail=result["error"])
+        
+        return result
+    except Exception as e:
+        logger.error(f"Error generating indicator report: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/reports/demographics")
+def get_demographics_report(
+    form_id: Optional[int] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Get demographics report with age, gender, household size distributions.
+    
+    Automatically detects demographic fields from form schema.
+    Works with Child Protection & Education forms.
+    """
+    try:
+        filters_request = {
+            "date_from": date_from,
+            "date_to": date_to,
+            "locations": [],
+            "form_ids": [form_id] if form_id else [],
+            "field_filters": {},
+            "exclude_incomplete": False,
+        }
+        
+        report_service = ReportService(db)
+        result = report_service.get_demographics(
+            filters_request,
+            form_id=form_id
+        )
+        
+        if "error" in result:
+            raise HTTPException(status_code=400, detail=result["error"])
+        
+        return result
+    except Exception as e:
+        logger.error(f"Error generating demographics report: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/reports/geo")
+def get_geospatial_report(
+    form_id: Optional[int] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Get geospatial report with GPS points, coverage, and bounds.
+    
+    Shows where surveys were conducted and coverage by location.
+    """
+    try:
+        filters_request = {
+            "date_from": date_from,
+            "date_to": date_to,
+            "locations": [],
+            "form_ids": [form_id] if form_id else [],
+            "field_filters": {},
+            "exclude_incomplete": False,
+        }
+        
+        report_service = ReportService(db)
+        result = report_service.get_geospatial(
+            filters_request,
+            form_id=form_id
+        )
+        
+        if "error" in result:
+            raise HTTPException(status_code=400, detail=result["error"])
+        
+        return result
+    except Exception as e:
+        logger.error(f"Error generating geospatial report: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/reports/trends/{kpi_code}")
+def get_trend_report(
+    kpi_code: str,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    granularity: Optional[str] = "monthly",
+    form_ids: Optional[str] = None,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Get trend report for a KPI over time.
+    
+    Shows KPI values with specified granularity (daily, weekly, monthly, quarterly, annual).
+    """
+    try:
+        form_id_list = []
+        if form_ids:
+            form_id_list = [int(x) for x in form_ids.split(",")]
+        
+        filters_request = {
+            "date_from": date_from,
+            "date_to": date_to,
+            "locations": [],
+            "form_ids": form_id_list,
+            "field_filters": {},
+            "exclude_incomplete": False,
+        }
+        
+        report_service = ReportService(db)
+        result = report_service.get_trends(
+            kpi_code,
+            filters_request,
+            granularity=granularity
+        )
+        
+        if "error" in result:
+            raise HTTPException(status_code=404, detail=result["error"])
+        
+        return result
+    except Exception as e:
+        logger.error(f"Error generating trend report: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/reports/program-comparison")
+def get_program_comparison_report(
+    dimension: str = "form_id",
+    kpi_code: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Get program comparison report comparing KPIs across forms/locations/programs.
+    
+    dimension: 'form_id', 'location', 'district', or any custom field
+    kpi_code: KPI to compare (required)
+    """
+    try:
+        if not kpi_code:
+            raise HTTPException(status_code=400, detail="kpi_code is required")
+        
+        filters_request = {
+            "date_from": date_from,
+            "date_to": date_to,
+            "locations": [],
+            "form_ids": [],
+            "field_filters": {},
+            "exclude_incomplete": False,
+        }
+        
+        report_service = ReportService(db)
+        result = report_service.get_program_comparison(
+            dimension,
+            [kpi_code],
+            filters_request
+        )
+        
+        if "error" in result:
+            raise HTTPException(status_code=400, detail=result["error"])
+        
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error generating program comparison report: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/kpis", response_model=list[KPIDefinitionResponse])
+def list_kpis(
+    category: Optional[str] = None,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    """
+    List all available KPI definitions.
+    
+    Optionally filter by category (WASH, Nutrition, Protection, Education, Food Security, Livelihoods).
+    """
+    try:
+        kpi_engine = KPIEngine(db)
+        kpis = kpi_engine.list_kpis(category=category, include_custom=True)
+        
+        return [
+            KPIDefinitionResponse.model_validate(kpi)
+            for kpi in kpis
+        ]
+    except Exception as e:
+        logger.error(f"Error listing KPIs: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
 # Sync Endpoints
 # ============================================================================
 
@@ -1919,22 +2505,28 @@ def sync_forms(
     db: Session = Depends(get_db),
 ):
     """Sync forms from Kobo (admin only)."""
-    etl = ETLPipeline(db)
-    
-    if sync_request.form_id:
-        # Sync specific form
-        form = db.query(FormModel).filter(FormModel.id == sync_request.form_id).first()
-        if not form:
-            raise HTTPException(status_code=404, detail="Form not found")
-        sync_log = etl.sync_form(form.kobo_form_id, sync_type=sync_request.sync_type)
-    else:
-        # Sync all forms
-        sync_logs = etl.sync_all_forms(sync_type=sync_request.sync_type)
-        sync_log = sync_logs[0] if sync_logs else None
-        if not sync_log:
-            raise HTTPException(status_code=500, detail="Sync failed")
-    
-    return SyncLogResponse.model_validate(sync_log)
+    try:
+        etl = ETLPipeline(db)
+        
+        if sync_request.form_id:
+            # Sync specific form
+            form = db.query(FormModel).filter(FormModel.id == sync_request.form_id).first()
+            if not form:
+                raise HTTPException(status_code=404, detail="Form not found")
+            sync_log = etl.sync_form(form.kobo_form_id, sync_type=sync_request.sync_type)
+        else:
+            # Sync all forms
+            sync_logs = etl.sync_all_forms(sync_type=sync_request.sync_type)
+            sync_log = sync_logs[0] if sync_logs else None
+            if not sync_log:
+                raise HTTPException(status_code=500, detail="Sync failed")
+        
+        return SyncLogResponse.model_validate(sync_log)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Sync error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Sync failed: {str(e)}")
 
 
 @app.delete("/api/forms/{form_id}/data")
@@ -2307,9 +2899,12 @@ def get_form_filter_fields(
                         seen_fields.add(key)
             
             # Update options for all fields based on actual data
+            # Only keep fields that have actual data
+            fields_with_data = []
             for field in filter_fields:
                 field_name = field["name"]
-                if field_name in field_value_counts:
+                if field_name in field_value_counts and field_value_counts[field_name]:
+                    # Only include if field has at least one value
                     unique_values = sorted(field_value_counts[field_name])
                     # Populate options for select fields and text fields with data
                     if field["type"] in ["select_one", "select_multiple", "text"]:
@@ -2319,6 +2914,12 @@ def get_form_filter_fields(
                                 {"value": val, "label": val.replace("_", " ").title() if len(unique_values) <= 50 else val}
                                 for val in unique_values[:100]  # Limit to 100 options
                             ]
+                    fields_with_data.append(field)
+                elif field["type"] in ["select_one", "select_multiple"] and field["options"]:
+                    # Include select fields from schema even if no data yet (they have predefined options)
+                    fields_with_data.append(field)
+            
+            filter_fields = fields_with_data
     except Exception as e:
         logger.error(f"Error extracting fields from submissions for form {form_id}: {e}", exc_info=True)
     
@@ -2464,10 +3065,10 @@ def get_form_chart_data(
             
             if chart_type == "line" and time_dimension:
                 # Line chart: group by time dimension
-                chart_data = _process_line_chart(submissions, time_dimension, dimension)
+                chart_data = _process_line_chart(submissions, time_dimension, dimension, form.form_schema)
             elif chart_type in ["stacked_bar", "diverging_stacked_bar"] and secondary_dimension:
                 # Stacked bar chart: group by dimension, stack by secondary_dimension
-                chart_data = _process_stacked_bar_chart(submissions, dimension, secondary_dimension)
+                chart_data = _process_stacked_bar_chart(submissions, dimension, secondary_dimension, form.form_schema)
             elif chart_type == "histogram":
                 # Histogram: frequency distribution of numeric dimension
                 chart_data = _process_histogram(submissions, dimension, bin_count)
@@ -2606,9 +3207,15 @@ def _process_pie_chart(submissions: list, dimension: str, form_schema: dict = No
     return _process_bar_chart(submissions, dimension, form_schema)
 
 
-def _process_line_chart(submissions: list, time_dimension: str, value_dimension: Optional[str] = None) -> list:
+def _process_line_chart(submissions: list, time_dimension: str, value_dimension: Optional[str] = None, form_schema: dict = None) -> list:
     """Process data for line chart - trends over time."""
     from datetime import datetime
+    
+    # Build schema maps for label lookup if provided
+    question_map = {}
+    choice_map = {}
+    if form_schema:
+        question_map, choice_map = build_schema_maps(form_schema)
     
     time_data = {}
     for submission in submissions:
@@ -2643,9 +3250,27 @@ def _process_line_chart(submissions: list, time_dimension: str, value_dimension:
                 if value_dimension:
                     # Count by value_dimension within each time period
                     value = sub_data.get(value_dimension, "All")
+                    if value in (None, ""):
+                        value = get_nested_field_value(sub_data, value_dimension) or "All"
+                    value_str = str(value)
+                    
+                    # Convert code to label if possible
+                    if form_schema and choice_map:
+                        for var_name in [value_dimension, value_dimension.lower(), value_dimension.replace("/", "_"), value_dimension.split("/")[-1]]:
+                            if var_name in question_map:
+                                field_meta = question_map[var_name]
+                                if field_meta.get("list_name") and field_meta["list_name"] in choice_map:
+                                    list_name = field_meta["list_name"]
+                                    code_lower = value_str.lower()
+                                    for code_key, label_value in choice_map[list_name].items():
+                                        if str(code_key).lower() == code_lower:
+                                            value_str = label_value
+                                            break
+                                break
+                    
                     if date_key not in time_data:
                         time_data[date_key] = {}
-                    time_data[date_key][str(value)] = time_data[date_key].get(str(value), 0) + 1
+                    time_data[date_key][value_str] = time_data[date_key].get(value_str, 0) + 1
                 else:
                     # Simple count over time
                     time_data[date_key] = time_data.get(date_key, 0) + 1
@@ -2668,7 +3293,7 @@ def _process_line_chart(submissions: list, time_dimension: str, value_dimension:
         chart_data = []
         for date in all_dates:
             point = {"name": date, "date": date}
-            for value in all_values:
+            for value in sorted(all_values):
                 point[value] = time_data.get(date, {}).get(value, 0)
             chart_data.append(point)
     else:
@@ -2677,7 +3302,7 @@ def _process_line_chart(submissions: list, time_dimension: str, value_dimension:
     return chart_data
 
 
-def _process_stacked_bar_chart(submissions: list, dimension: str, secondary_dimension: str) -> list:
+def _process_stacked_bar_chart(submissions: list, dimension: str, secondary_dimension: str, form_schema: dict = None) -> list:
     """Process data for stacked bar chart - group by dimension, stack by secondary."""
     grouped_data = {}
     
@@ -2686,8 +3311,26 @@ def _process_stacked_bar_chart(submissions: list, dimension: str, secondary_dime
             if not submission.submission_data or not isinstance(submission.submission_data, dict):
                 continue
             sub_data = submission.submission_data
-            primary_value = str(sub_data.get(dimension, "Unknown"))
-            secondary_value = str(sub_data.get(secondary_dimension, "Unknown"))
+            
+            primary_raw = sub_data.get(dimension, "Unknown")
+            if primary_raw in (None, ""):
+                primary_raw = get_nested_field_value(sub_data, dimension) or "Unknown"
+            
+            secondary_raw = sub_data.get(secondary_dimension, "Unknown")
+            if secondary_raw in (None, ""):
+                secondary_raw = get_nested_field_value(sub_data, secondary_dimension) or "Unknown"
+            
+            primary_value = str(primary_raw)
+            secondary_value = str(secondary_raw)
+            
+            if form_schema:
+                primary_label = get_choice_label(form_schema, dimension, primary_value)
+                if primary_label != primary_value:
+                    primary_value = primary_label
+                
+                secondary_label = get_choice_label(form_schema, secondary_dimension, secondary_value)
+                if secondary_label != secondary_value:
+                    secondary_value = secondary_label
             
             if primary_value not in grouped_data:
                 grouped_data[primary_value] = {}
@@ -2706,7 +3349,7 @@ def _process_stacked_bar_chart(submissions: list, dimension: str, secondary_dime
     chart_data = []
     for primary_value, secondary_data in sorted(grouped_data.items()):
         point = {"name": primary_value}
-        for secondary_value in all_secondary_values:
+        for secondary_value in sorted(all_secondary_values):
             point[secondary_value] = secondary_data.get(secondary_value, 0) if isinstance(secondary_data, dict) else 0
         chart_data.append(point)
     
@@ -2799,7 +3442,123 @@ def get_form_submissions(
     # Apply filters if provided (simplified - use proper JSON querying in production)
     submissions = query.order_by(desc(Submission.created_at)).offset(skip).limit(limit).all()
     
-    return [SubmissionResponse.model_validate(s) for s in submissions]
+    result = []
+    for s in submissions:
+        response = SubmissionResponse.model_validate(s)
+        response.submission_data = s.cleaned_data or s.submission_data or {}
+        result.append(response)
+    
+    return result
+
+
+@app.get("/api/forms/{form_id}/table", response_model=TableViewResponse)
+def get_form_table(
+    form_id: int,
+    skip: int = 0,
+    limit: int = 100,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    """Get form data in table view format (like Kobo table)."""
+    form = db.query(FormModel).filter(FormModel.id == form_id).first()
+    if not form:
+        raise HTTPException(status_code=404, detail="Form not found")
+    
+    total_count = db.query(Submission).filter(Submission.form_id == form_id).count()
+    
+    submissions = (
+        db.query(Submission)
+        .filter(Submission.form_id == form_id)
+        .order_by(desc(Submission.created_at))
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
+    
+    columns = []
+    rows = []
+    
+    if submissions:
+        seen_fields = set()
+        field_types = {}
+        
+        for submission in submissions:
+            payload = submission.cleaned_data or submission.submission_data
+            if not payload or not isinstance(payload, dict):
+                continue
+            
+            for key in payload.keys():
+                if key.startswith("_"):
+                    continue
+                if key not in seen_fields:
+                    seen_fields.add(key)
+                    
+                    value = payload[key]
+                    if isinstance(value, bool):
+                        field_type = "boolean"
+                    elif isinstance(value, (int, float)):
+                        field_type = "numeric"
+                    elif isinstance(value, list):
+                        field_type = "list"
+                    else:
+                        field_type = "text"
+                    
+                    field_types[key] = field_type
+        
+        for field_name in sorted(seen_fields):
+            field_type = field_types.get(field_name, "text")
+            label = field_name.replace("_", " ").replace("/", " ").title()
+            
+            try:
+                if form.form_schema:
+                    schema = form.form_schema if isinstance(form.form_schema, dict) else json.loads(form.form_schema) if isinstance(form.form_schema, str) else {}
+                    content = schema.get("content", {})
+                    survey = content.get("survey", [])
+                    for field in survey:
+                        if field.get("name") == field_name:
+                            field_label_value = field.get("label", label)
+                            if isinstance(field_label_value, list) and len(field_label_value) > 0:
+                                label = field_label_value[0]
+                            elif isinstance(field_label_value, str):
+                                label = field_label_value
+                            break
+            except Exception:
+                pass
+            
+            columns.append(TableColumnDefinition(
+                name=field_name,
+                label=label,
+                type=field_type
+            ))
+        
+        for submission in submissions:
+            payload = submission.cleaned_data or submission.submission_data
+            if not payload or not isinstance(payload, dict):
+                continue
+            
+            row = {}
+            for field_name in seen_fields:
+                value = payload.get(field_name)
+                
+                if value is None:
+                    row[field_name] = None
+                elif isinstance(value, list):
+                    row[field_name] = ", ".join(str(v) for v in value)
+                else:
+                    row[field_name] = str(value)
+            
+            rows.append(row)
+    
+    return TableViewResponse(
+        form_id=form_id,
+        form_title=form.title,
+        total_count=total_count,
+        columns=columns,
+        rows=rows,
+        skip=skip,
+        limit=limit,
+        has_more=(skip + limit) < total_count
+    )
 
 
 @app.get("/api/forms/{form_id}/map-data")

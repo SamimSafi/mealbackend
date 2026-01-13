@@ -1,5 +1,6 @@
 """ETL pipeline for processing Kobo data."""
 import logging
+import math
 from datetime import datetime
 from typing import Any, Optional
 
@@ -20,11 +21,67 @@ class ETLPipeline:
         self.db = db
         self.kobo_client = kobo_client or KoboClient()
 
-    def clean_submission_data(self, submission: dict[str, Any]) -> dict[str, Any]:
+    def build_choice_mapping(self, form: Form) -> dict[str, dict[str, str]]:
+        """
+        Build a mapping of choice lists: {list_name -> {code -> label}}.
+        Extracts from form schema.
+        """
+        mapping = {}
+        
+        if not form.form_schema or not isinstance(form.form_schema, dict):
+            return mapping
+        
+        content = form.form_schema.get('content', {})
+        choices = content.get('choices', [])
+        
+        if not isinstance(choices, list):
+            return mapping
+        
+        for choice in choices:
+            list_name = choice.get('list_name')
+            code = choice.get('name')
+            label = choice.get('label')
+            
+            if list_name and code and label:
+                if list_name not in mapping:
+                    mapping[list_name] = {}
+                
+                if isinstance(label, list) and len(label) > 0:
+                    human_label = label[0]
+                else:
+                    human_label = str(label)
+                
+                mapping[list_name][code] = human_label
+        
+        return mapping
+
+    def decode_submission_choices(self, submission: dict[str, Any], choice_mapping: dict[str, dict[str, str]]) -> dict[str, Any]:
+        """
+        Decode choice codes to human-readable labels using choice mapping.
+        Modifies submission dict in-place with decoded values.
+        """
+        for field_name, value in list(submission.items()):
+            if value is None or value == "":
+                continue
+            
+            if isinstance(value, str):
+                value_lower = value.lower().strip()
+                
+                for list_name, codes_to_labels in choice_mapping.items():
+                    if value_lower in codes_to_labels or value in codes_to_labels:
+                        decoded = codes_to_labels.get(value) or codes_to_labels.get(value_lower)
+                        if decoded:
+                            submission[field_name] = decoded
+                            break
+        
+        return submission
+
+    def clean_submission_data(self, submission: dict[str, Any], form: Optional[Form] = None) -> dict[str, Any]:
         """
         Clean and normalize submission data.
 
         Responsibilities:
+        - Decode choice codes to human-readable labels
         - Flatten nested JSON structures
         - Coerce numeric fields to numbers
         - Normalize date/time strings
@@ -32,9 +89,14 @@ class ETLPipeline:
         - Derive helper fields (e.g. age_group)
         - Attach validation flags (is_valid, validation_errors)
         """
-        # First flatten the raw JSON to a simple key/value mapping
+        decoded_submission = submission.copy()
+        
+        if form:
+            choice_mapping = self.build_choice_mapping(form)
+            decoded_submission = self.decode_submission_choices(decoded_submission, choice_mapping)
+        
         flattened: dict[str, Any] = {}
-        for key, value in submission.items():
+        for key, value in decoded_submission.items():
             # Handle nested structures
             if isinstance(value, dict):
                 flattened.update(self._flatten_dict(value, prefix=key))
@@ -62,7 +124,8 @@ class ETLPipeline:
             # Numeric fields (ids, ages, counts, numeric measurements)
             if any(tok in lowered_key for tok in ["age", "count", "number", "num", "qty", "quantity"]):
                 try:
-                    if value not in (None, ""):
+                    # Only try to convert if it's a string or numeric type, not complex types like dict/list
+                    if value not in (None, "") and not isinstance(value, (dict, list)):
                         value = float(value)
                 except (ValueError, TypeError):
                     validation_errors.append(f"Invalid numeric value for {key}: {value!r}")
@@ -97,7 +160,7 @@ class ETLPipeline:
                 age_value = cleaned[candidate]
                 break
 
-        if age_value is not None:
+        if age_value is not None and not isinstance(age_value, (dict, list)):
             try:
                 age_float = float(age_value)
                 cleaned["age_group"] = self._get_age_group(age_float)
@@ -155,7 +218,11 @@ class ETLPipeline:
             if field in submission_data:
                 loc = submission_data[field]
                 if isinstance(loc, list) and len(loc) >= 2:
-                    lat, lng = float(loc[0]), float(loc[1])
+                    try:
+                        if loc[0] is not None and loc[1] is not None:
+                            lat, lng = float(loc[0]), float(loc[1])
+                    except (ValueError, TypeError):
+                        pass
                 elif isinstance(loc, dict):
                     lat = loc.get("latitude") or loc.get("lat")
                     lng = loc.get("longitude") or loc.get("lng") or loc.get("lon")
@@ -259,7 +326,7 @@ class ETLPipeline:
                 )
 
                 # Clean and normalize data
-                cleaned_data = self.clean_submission_data(kobo_submission)
+                cleaned_data = self.clean_submission_data(kobo_submission, form=form)
                 lat, lng, loc_name = self.extract_location(kobo_submission)
                 
                 submitted_at = None
@@ -357,7 +424,7 @@ class ETLPipeline:
 
         # Convert to DataFrame for easier computation
         submission_data = [s.submission_data for s in submissions]
-        df = pd.DataFrame([self.clean_submission_data(s) for s in submission_data])
+        df = pd.DataFrame([self.clean_submission_data(s, form=form) for s in submission_data])
 
         indicators = []
 
@@ -379,7 +446,8 @@ class ETLPipeline:
                     indicator = self._get_or_create_indicator(
                         form_id, indicator_name, "count", {"field": field, "value": category}
                     )
-                    indicator.value = float(count)
+                    if count is not None:
+                        indicator.value = float(count)
                     indicators.append(indicator)
 
         # 3. Percentage indicators
@@ -406,7 +474,9 @@ class ETLPipeline:
                 indicator = self._get_or_create_indicator(
                     form_id, indicator_name, "average", {"field": field}
                 )
-                indicator.value = float(avg)
+                # Check if avg is valid (not NaN or None)
+                if avg is not None and not math.isnan(avg):
+                    indicator.value = float(avg)
                 indicators.append(indicator)
 
         self.db.commit()

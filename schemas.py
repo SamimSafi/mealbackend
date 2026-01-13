@@ -278,12 +278,12 @@ class AggregateRequest(BaseModel):
 
     - filters: equality filters on cleaned/submission data
     - group_by: list of fields to group by
-    - metrics: list of metrics to compute per group
+    - metrics: list of metrics to compute per group (optional; if empty returns general aggregate)
     """
 
     filters: Optional[dict[str, Any]] = None
     group_by: Optional[list[AggregateGroupBy]] = None
-    metrics: list[AggregateMetric]
+    metrics: Optional[list[AggregateMetric]] = None
 
 
 # Generic chart request/response for raw statistical analysis
@@ -417,3 +417,247 @@ class BrandingDetailResponse(BrandingResponse):
     """Detailed branding response with organization info."""
 
     organization: OrganizationResponse
+
+
+# Report Schemas (Filters, Requests, Responses)
+class LocationFilterRequest(BaseModel):
+    """Geographic dimension filter."""
+    
+    dimension_1: Optional[str] = None
+    dimension_2: Optional[str] = None
+    dimension_3: Optional[str] = None
+
+
+class ReportFiltersRequest(BaseModel):
+    """Standard filters for all reports."""
+    
+    date_from: Optional[str] = None  # ISO date format
+    date_to: Optional[str] = None
+    locations: Optional[list[LocationFilterRequest]] = []
+    form_ids: Optional[list[int]] = []
+    field_filters: Optional[dict[str, Any]] = {}
+    exclude_incomplete: bool = False
+
+
+class ReportMetadataResponse(BaseModel):
+    """Metadata included in all report responses."""
+    
+    timestamp: datetime
+    report_type: str
+    filters_applied: dict[str, Any]
+    total_submissions_analyzed: int
+    total_submissions_in_filter: int
+    data_quality_pct: float
+    generated_in_ms: Optional[int] = None
+
+
+# KPI Definition & Value Schemas
+class KPIDefinitionResponse(BaseModel):
+    """KPI definition response."""
+    
+    id: int
+    kpi_code: str
+    label: str
+    description: Optional[str]
+    unit: str
+    baseline_value: Optional[float]
+    target_value: Optional[float]
+    report_category: str
+    sub_category: Optional[str]
+    is_custom: bool
+    is_active: bool
+    created_at: datetime
+    
+    class Config:
+        from_attributes = True
+
+
+class KPIComputationResponse(BaseModel):
+    """Single KPI computation result."""
+    
+    kpi_code: str
+    kpi_label: str
+    value: float
+    unit: str
+    baseline: Optional[float]
+    target: Optional[float]
+    progress_to_target_pct: Optional[float]  # (value - baseline) / (target - baseline) * 100
+    sample_size: int
+    valid_sample_size: int
+    trend: Optional[str]  # up, down, stable, no_data
+    category: str
+    sub_category: Optional[str]
+
+
+class QuestionSummaryResponse(BaseModel):
+    """Summary for a single question in survey."""
+    
+    field: str
+    field_label: str
+    field_type: str
+    response_type: str  # categorical, numeric, text, date
+    valid_responses: int
+    null_responses: int
+    
+    # For categorical
+    options: Optional[list[dict[str, Any]]] = None
+    
+    # For numeric
+    statistics: Optional[dict[str, float]] = None
+
+
+class SurveySummaryResponse(BaseModel):
+    """Survey summary report."""
+    
+    metadata: ReportMetadataResponse
+    form_id: int
+    form_title: str
+    summary: dict[str, Any]
+    question_summaries: list[QuestionSummaryResponse]
+
+
+class IndicatorReportResponse(BaseModel):
+    """Indicator/KPI report."""
+    
+    metadata: ReportMetadataResponse
+    kpis: list[KPIComputationResponse]
+    by_category: dict[str, list[KPIComputationResponse]]
+    highlights: Optional[list[dict[str, Any]]] = None
+
+
+class DemographicsReportResponse(BaseModel):
+    """Demographics report."""
+    
+    metadata: ReportMetadataResponse
+    demographics: dict[str, Any]
+
+
+class GeoPointResponse(BaseModel):
+    """Single geographic point with submission count."""
+    
+    lat: float
+    lng: float
+    count: int
+    location_name: Optional[str] = None
+
+
+class GeospatialReportResponse(BaseModel):
+    """Geospatial report with maps and coverage."""
+    
+    metadata: ReportMetadataResponse
+    points: list[GeoPointResponse]
+    coverage: dict[str, Any]
+    bounds: dict[str, float]
+
+
+class TrendDataPointResponse(BaseModel):
+    """Single point in trend data."""
+    
+    period: str
+    period_label: str
+    value: float
+    sample_size: int
+    baseline: Optional[float]
+    target: Optional[float]
+
+
+class TrendReportResponse(BaseModel):
+    """Trend report for KPI over time."""
+    
+    metadata: ReportMetadataResponse
+    kpi_code: str
+    kpi_label: str
+    time_granularity: str  # daily, weekly, monthly
+    trend_data: list[TrendDataPointResponse]
+    summary: dict[str, Any]
+
+
+class ProgramComparisonItemResponse(BaseModel):
+    """Single item in program comparison."""
+    
+    item_id: int
+    item_label: str
+    kpi_value: float
+    target: Optional[float]
+    baseline: Optional[float]
+    sample_size: int
+    status: str  # on_track, behind, ahead, no_data
+
+
+class ProgramComparisonResponse(BaseModel):
+    """Program comparison report."""
+    
+    metadata: ReportMetadataResponse
+    comparison_dimension: str
+    kpi_code: str
+    items: list[ProgramComparisonItemResponse]
+    aggregate: dict[str, float]
+
+
+class TableColumnDefinition(BaseModel):
+    """Definition of a table column."""
+    
+    name: str
+    label: str
+    type: str
+
+
+class TableViewResponse(BaseModel):
+    """Table view response for form data."""
+    
+    form_id: int
+    form_title: str
+    total_count: int
+    columns: list[TableColumnDefinition]
+    rows: list[dict[str, Any]]
+    skip: int
+    limit: int
+    has_more: bool
+
+
+class PolarAreaItem(BaseModel):
+    """Single item in polar area chart."""
+    
+    label: str
+    value: int
+    percentage: float
+
+
+class PolarAreaChartRequest(BaseModel):
+    """Request body for polar area chart."""
+    
+    form_id: int
+    field: str
+    filters: Optional[dict[str, Any]] = None
+
+
+class PolarAreaChartResponse(BaseModel):
+    """Response body for polar area chart."""
+    
+    form_id: int
+    field_name: str
+    field_label: str
+    items: list[PolarAreaItem]
+    total_submissions: int
+    total_with_data: int
+    without_data: int
+    unique_values: int
+
+
+class GenderRatioItem(BaseModel):
+    """Single gender item in ratio."""
+    
+    gender: str
+    count: int
+    percentage: float
+
+
+class AggregateReportResponse(BaseModel):
+    """Response for form aggregate report."""
+    
+    form_id: int
+    total_survey: int
+    todays_submissions: int
+    total_provinces: int
+    gender_ratio: list[GenderRatioItem]
+    generated_at: datetime
