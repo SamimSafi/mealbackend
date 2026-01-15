@@ -3089,14 +3089,18 @@ def get_form_chart_data(
             logger.error(f"Error processing chart data for form {form_id}: {e}", exc_info=True)
             raise HTTPException(status_code=500, detail=f"Error processing chart data: {str(e)}")
         
-        return {
+        response = {
             "form_id": form_id,
             "chart_type": chart_type,
             "dimension": dimension,
-            "secondary_dimension": secondary_dimension,
             "data": chart_data,
             "total": len(submissions),
         }
+        
+        if secondary_dimension and chart_type in ["stacked_bar", "diverging_stacked_bar"]:
+            response["secondary_dimension"] = secondary_dimension
+        
+        return response
     except HTTPException:
         raise
     except Exception as e:
@@ -3220,10 +3224,10 @@ def _process_line_chart(submissions: list, time_dimension: str, value_dimension:
     time_data = {}
     for submission in submissions:
         try:
-            if not submission.submission_data or not isinstance(submission.submission_data, dict):
+            sub_data = submission.cleaned_data or submission.submission_data
+            if not sub_data or not isinstance(sub_data, dict):
                 continue
-            sub_data = submission.submission_data
-            time_value = sub_data.get(time_dimension)
+            time_value = get_nested_field_value(sub_data, time_dimension)
             
             if not time_value:
                 continue
@@ -3249,9 +3253,7 @@ def _process_line_chart(submissions: list, time_dimension: str, value_dimension:
                 
                 if value_dimension:
                     # Count by value_dimension within each time period
-                    value = sub_data.get(value_dimension, "All")
-                    if value in (None, ""):
-                        value = get_nested_field_value(sub_data, value_dimension) or "All"
+                    value = get_nested_field_value(sub_data, value_dimension) or "All"
                     value_str = str(value)
                     
                     # Convert code to label if possible
@@ -3308,17 +3310,13 @@ def _process_stacked_bar_chart(submissions: list, dimension: str, secondary_dime
     
     for submission in submissions:
         try:
-            if not submission.submission_data or not isinstance(submission.submission_data, dict):
+            sub_data = submission.cleaned_data or submission.submission_data
+            if not sub_data or not isinstance(sub_data, dict):
                 continue
-            sub_data = submission.submission_data
             
-            primary_raw = sub_data.get(dimension, "Unknown")
-            if primary_raw in (None, ""):
-                primary_raw = get_nested_field_value(sub_data, dimension) or "Unknown"
+            primary_raw = get_nested_field_value(sub_data, dimension) or "Unknown"
             
-            secondary_raw = sub_data.get(secondary_dimension, "Unknown")
-            if secondary_raw in (None, ""):
-                secondary_raw = get_nested_field_value(sub_data, secondary_dimension) or "Unknown"
+            secondary_raw = get_nested_field_value(sub_data, secondary_dimension) or "Unknown"
             
             primary_value = str(primary_raw)
             secondary_value = str(secondary_raw)
@@ -3361,10 +3359,10 @@ def _process_histogram(submissions: list, dimension: str, bin_count: int) -> lis
     values = []
     for submission in submissions:
         try:
-            if not submission.submission_data or not isinstance(submission.submission_data, dict):
+            sub_data = submission.cleaned_data or submission.submission_data
+            if not sub_data or not isinstance(sub_data, dict):
                 continue
-            sub_data = submission.submission_data
-            value = sub_data.get(dimension)
+            value = get_nested_field_value(sub_data, dimension)
             try:
                 if value is not None:
                     num_value = float(value)
@@ -3404,11 +3402,11 @@ def _process_scatter_plot(submissions: list, x_dimension: str, y_dimension: str)
     points = []
     for submission in submissions:
         try:
-            if not submission.submission_data or not isinstance(submission.submission_data, dict):
+            sub_data = submission.cleaned_data or submission.submission_data
+            if not sub_data or not isinstance(sub_data, dict):
                 continue
-            sub_data = submission.submission_data
-            x_value = sub_data.get(x_dimension)
-            y_value = sub_data.get(y_dimension)
+            x_value = get_nested_field_value(sub_data, x_dimension)
+            y_value = get_nested_field_value(sub_data, y_dimension)
             try:
                 if x_value is not None and y_value is not None:
                     x_num = float(x_value)
@@ -3446,6 +3444,49 @@ def get_form_submissions(
     for s in submissions:
         response = SubmissionResponse.model_validate(s)
         response.submission_data = s.cleaned_data or s.submission_data or {}
+        result.append(response)
+    
+    return result
+
+
+@app.get("/api/forms/{form_id}/submission-details")
+def get_submission_details(
+    form_id: int,
+    submission_id: str = None,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    """Get detailed information for submission(s) in a form.
+    
+    Supports multiple submission IDs via:
+    - Query params: ?submission_id=1&submission_id=2&submission_id=3
+    - Comma-separated: ?submission_id=1,2,3
+    """
+    form = db.query(FormModel).filter(FormModel.id == form_id).first()
+    if not form:
+        raise HTTPException(status_code=404, detail="Form not found")
+    
+    if not submission_id:
+        raise HTTPException(status_code=400, detail="submission_id is required")
+    
+    submission_ids = []
+    if ',' in submission_id:
+        submission_ids = [int(id.strip()) for id in submission_id.split(',')]
+    else:
+        submission_ids = [int(submission_id)]
+    
+    submissions = db.query(Submission).filter(
+        Submission.id.in_(submission_ids),
+        Submission.form_id == form_id
+    ).all()
+    
+    if not submissions:
+        raise HTTPException(status_code=404, detail="No submissions found")
+    
+    result = []
+    for submission in submissions:
+        response = SubmissionResponse.model_validate(submission)
+        response.submission_data = submission.cleaned_data or submission.submission_data or {}
         result.append(response)
     
     return result

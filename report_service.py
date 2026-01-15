@@ -233,20 +233,28 @@ class ReportService:
         
         points = []
         seen_locations = set()
+        location_submissions = {}
         
         for sub in submissions:
             if sub.location_lat and sub.location_lng:
                 key = (sub.location_lat, sub.location_lng)
-                if key in seen_locations:
-                    continue
-                seen_locations.add(key)
-                
-                points.append({
-                    "lat": sub.location_lat,
-                    "lng": sub.location_lng,
-                    "count": len([s for s in submissions if s.location_lat == sub.location_lat and s.location_lng == sub.location_lng]),
-                    "location_name": sub.location_name,
-                })
+                if key not in location_submissions:
+                    location_submissions[key] = {
+                        "submissions": [],
+                        "lat": sub.location_lat,
+                        "lng": sub.location_lng,
+                        "location_name": sub.location_name,
+                    }
+                location_submissions[key]["submissions"].append(sub.id)
+        
+        for key, location_data in location_submissions.items():
+            points.append({
+                "lat": location_data["lat"],
+                "lng": location_data["lng"],
+                "count": len(location_data["submissions"]),
+                "location_name": location_data["location_name"],
+                "submissions": location_data["submissions"],
+            })
         
         coverage = self._calculate_coverage(submissions, location_field or "location_name")
         bounds = self._calculate_bounds(submissions)
