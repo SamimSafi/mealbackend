@@ -82,7 +82,7 @@ def auth_headers(client, test_user):
     """Get authentication headers."""
     response = client.post(
         "/api/auth/login",
-        data={"username": "testuser", "password": "testpass123"},
+        json={"username": "testuser", "password": "testpass123"},
     )
     token = response.json()["access_token"]
     return {"Authorization": f"Bearer {token}"}
@@ -93,7 +93,7 @@ def admin_headers(client, admin_user):
     """Get admin authentication headers."""
     response = client.post(
         "/api/auth/login",
-        data={"username": "admin", "password": "admin123"},
+        json={"username": "admin", "password": "admin123"},
     )
     token = response.json()["access_token"]
     return {"Authorization": f"Bearer {token}"}

@@ -104,6 +104,7 @@ logger = logging.getLogger(__name__)
 
 from websocket_manager import manager
 from discover import discover_router
+from analysis import router as analysis_router
 from report_service import ReportService
 from report_filters import FilterContext, LocationFilter
 from kpi_engine import KPIEngine
@@ -161,6 +162,7 @@ app.mount("/uploads", StaticFiles(directory=str(uploads_dir)), name="uploads")
 
 # Discovery endpoints (auto-detect Back4App URL)
 app.include_router(discover_router)
+app.include_router(analysis_router)
 
 
 

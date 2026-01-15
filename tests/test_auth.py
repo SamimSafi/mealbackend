@@ -7,7 +7,7 @@ def test_login_success(client, test_user):
     """Test successful login."""
     response = client.post(
         "/api/auth/login",
-        data={"username": "testuser", "password": "testpass123"},
+        json={"username": "testuser", "password": "testpass123"},
     )
     assert response.status_code == status.HTTP_200_OK
     data = response.json()
@@ -19,7 +19,7 @@ def test_login_invalid_credentials(client, test_user):
     """Test login with invalid credentials."""
     response = client.post(
         "/api/auth/login",
-        data={"username": "testuser", "password": "wrongpassword"},
+        json={"username": "testuser", "password": "wrongpassword"},
     )
     assert response.status_code == status.HTTP_401_UNAUTHORIZED
 

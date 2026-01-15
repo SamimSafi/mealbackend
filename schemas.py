@@ -661,3 +661,48 @@ class AggregateReportResponse(BaseModel):
     total_provinces: int
     gender_ratio: list[GenderRatioItem]
     generated_at: datetime
+
+
+class CrossTabResponse(BaseModel):
+    """Cross-tabulation response."""
+    rows: list[str]
+    columns: list[str]
+    data: list[list[int]]
+    row_totals: list[int]
+    column_totals: list[int]
+    grand_total: int
+    total_responses: int
+    missing_count: int
+    missing_percentage: float
+
+
+class StackedBarItem(BaseModel):
+    """Item for stacked bar chart."""
+    category: str
+    values: dict[str, int]
+    percentages: dict[str, float]
+    total: int
+
+
+class StackedBarResponse(BaseModel):
+    """Stacked bar chart response."""
+    x_axis: list[str]
+    stacks: list[str]
+    items: list[StackedBarItem]
+    total_responses: int
+    missing_count: int
+    missing_percentage: float
+
+
+class AnalysisReportResponse(BaseModel):
+    """Unified analysis report response."""
+    crosstab: CrossTabResponse
+    stacked_bar: StackedBarResponse
+
+
+class AnalysisFiltersResponse(BaseModel):
+    """Available filters for analysis."""
+    categorical_fields: list[dict[str, str]]  # list of {"name": "field_name", "label": "Label"}
+    locations: list[str]
+    enumerators: list[str]
+    date_range: dict[str, Optional[str]]
