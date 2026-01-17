@@ -6,7 +6,10 @@ from models import User
 from typing import Optional, List
 from datetime import date
 from analysis_service import AnalysisService
-from schemas import CrossTabResponse, StackedBarResponse, AnalysisFiltersResponse, AnalysisReportResponse
+from schemas import (
+    CrossTabResponse, StackedBarResponse, AnalysisFiltersResponse, 
+    AnalysisReportResponse, NumericSummaryResponse
+)
 
 router = APIRouter(prefix="/api/analysis", tags=["Analysis"])
 
@@ -132,6 +135,42 @@ def get_stacked_bar(
             enumerator=enumerator,
             filter_field=filter_field,
             filter_value=filter_value
+        )
+    except Exception as e:
+        if isinstance(e, HTTPException):
+            raise e
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/numeric-summary", response_model=NumericSummaryResponse)
+def get_numeric_summary(
+    form_id: str = Query(..., description="Internal Form ID (int) or Kobo Form ID (string)"),
+    field: str = Query(..., description="Numeric field to summarize"),
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
+    location: Optional[str] = None,
+    enumerator: Optional[str] = None,
+    filter_field: Optional[str] = Query(None, description="Optional field to filter by"),
+    filter_value: Optional[str] = Query(None, description="Value for the optional filter field"),
+    allow_negative: bool = Query(False, description="Whether to include negative values"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """
+    Get summary statistics for a numeric field.
+    """
+    service = AnalysisService(db)
+    try:
+        return service.get_numeric_summary(
+            form_id=form_id,
+            field=field,
+            date_from=date_from,
+            date_to=date_to,
+            location=location,
+            enumerator=enumerator,
+            filter_field=filter_field,
+            filter_value=filter_value,
+            allow_negative=allow_negative
         )
     except Exception as e:
         if isinstance(e, HTTPException):

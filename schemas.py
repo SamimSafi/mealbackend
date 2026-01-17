@@ -306,6 +306,11 @@ class BoxPlotResponse(BaseModel):
     whisker_min: float
     whisker_max: float
     outliers: list[float]
+    iqr: Optional[float] = 0
+    lower_bound: Optional[float] = 0
+    upper_bound: Optional[float] = 0
+    count: Optional[int] = 0
+    stats: Optional[dict[str, Any]] = None
 
 
 class BarChartRequest(BaseModel):
@@ -702,7 +707,29 @@ class AnalysisReportResponse(BaseModel):
 
 class AnalysisFiltersResponse(BaseModel):
     """Available filters for analysis."""
-    categorical_fields: list[dict[str, str]]  # list of {"name": "field_name", "label": "Label"}
+    categorical_fields: list[dict[str, Any]]  # list of {"name": "field_name", "label": "Label", "type": "type"}
+    numeric_fields: list[dict[str, Any]]      # For Histogram, Scatter, Box Plot
+    date_fields: list[dict[str, Any]]         # For Line Chart
     locations: list[str]
     enumerators: list[str]
     date_range: dict[str, Optional[str]]
+
+
+class NumericStatistics(BaseModel):
+    """Calculated statistics for numeric fields."""
+    mean: float
+    median: float
+    min: float
+    max: float
+    std_dev: Optional[float] = None
+    q1: Optional[float] = None
+    q3: Optional[float] = None
+    iqr: Optional[float] = None
+
+
+class NumericSummaryResponse(BaseModel):
+    """Response for numeric summary statistics."""
+    field: str
+    valid_count: int
+    excluded_count: int
+    statistics: NumericStatistics

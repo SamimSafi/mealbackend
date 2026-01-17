@@ -1,12 +1,18 @@
 import logging
 import hashlib
 import json
+import numpy as np
+import pandas as pd
 from typing import Any, Dict, List, Optional
 from datetime import date, datetime, timedelta
 from sqlalchemy.orm import Session
 from sqlalchemy import func, and_, text, String, cast, or_, literal
 from models import Submission, Form as FormModel, ReportCache
-from schemas import CrossTabResponse, StackedBarResponse, StackedBarItem, AnalysisFiltersResponse, AnalysisReportResponse
+from schemas import (
+    CrossTabResponse, StackedBarResponse, StackedBarItem, 
+    AnalysisFiltersResponse, AnalysisReportResponse,
+    NumericSummaryResponse, NumericStatistics
+)
 from fastapi import HTTPException
 
 logger = logging.getLogger(__name__)
@@ -193,21 +199,36 @@ class AnalysisService:
         if not form:
             raise HTTPException(status_code=404, detail=f"Form {form_id} not found")
 
-        # 1. Categorical fields from schema
+        # 1. Fields from schema categorized by type
         categorical_fields = []
+        numeric_fields = []
+        date_fields = []
+        
         path_mapping = self._get_full_path_mapping(form)
         
         if form.form_schema and "content" in form.form_schema:
             survey = form.form_schema["content"].get("survey", [])
             for q in survey:
                 q_type = q.get("type", "")
-                if q_type in ["select_one", "text"]:
-                    short_name = q.get("name")
-                    full_path = path_mapping.get(short_name, short_name)
-                    categorical_fields.append({
-                        "name": full_path,
-                        "label": q.get("label", [short_name])[0] if isinstance(q.get("label"), list) else q.get("label", short_name)
-                    })
+                short_name = q.get("name")
+                if not short_name:
+                    continue
+                
+                full_path = path_mapping.get(short_name, short_name)
+                label = q.get("label", [short_name])[0] if isinstance(q.get("label"), list) else q.get("label", short_name)
+                
+                field_info = {
+                    "name": full_path,
+                    "label": label,
+                    "type": q_type
+                }
+                
+                if q_type in ["select_one", "select_multiple", "text"]:
+                    categorical_fields.append(field_info)
+                elif q_type in ["integer", "decimal"]:
+                    numeric_fields.append(field_info)
+                elif q_type in ["date", "datetime", "today", "start", "end"]:
+                    date_fields.append(field_info)
 
         # 2. Locations
         locations = self.db.query(Submission.location_name).filter(
@@ -240,6 +261,8 @@ class AnalysisService:
 
         response = AnalysisFiltersResponse(
             categorical_fields=categorical_fields,
+            numeric_fields=numeric_fields,
+            date_fields=date_fields,
             locations=location_list,
             enumerators=enumerator_list,
             date_range=date_range
@@ -481,3 +504,117 @@ class AnalysisService:
         self._set_cache("stacked_bar", filters, response.model_dump(), form.id if form else None)
         
         return response
+
+    def get_numeric_summary(
+        self,
+        form_id: str,
+        field: str,
+        date_from: Optional[date] = None,
+        date_to: Optional[date] = None,
+        location: Optional[str] = None,
+        enumerator: Optional[str] = None,
+        filter_field: Optional[str] = None,
+        filter_value: Optional[str] = None,
+        allow_negative: bool = False
+    ) -> NumericSummaryResponse:
+        """
+        Calculate summary statistics for a numeric field.
+        """
+        # 0. Find internal form ID first to resolve paths
+        form_filter = or_(FormModel.kobo_form_id == form_id)
+        if form_id.isdigit():
+            form_filter = or_(FormModel.kobo_form_id == form_id, FormModel.id == int(form_id))
+        form = self.db.query(FormModel).filter(form_filter).first()
+        if not form:
+            raise HTTPException(status_code=404, detail=f"Form {form_id} not found")
+
+        # Resolve field paths
+        path_mapping = self._get_full_path_mapping(form)
+        resolved_field = self._resolve_field(field, path_mapping)
+        filter_field = self._resolve_field(filter_field, path_mapping)
+
+        # Data Validation: Verify the field exists and is numeric in schema
+        is_numeric = False
+        field_label = field
+        if form.form_schema and "content" in form.form_schema:
+            survey = form.form_schema["content"].get("survey", [])
+            for q in survey:
+                q_name = q.get("name")
+                # Check both short name and resolved path
+                if q_name == field or path_mapping.get(q_name) == resolved_field or q_name == resolved_field:
+                    if q.get("type") in ["integer", "decimal"]:
+                        is_numeric = True
+                        field_label = q.get("label", [field])[0] if isinstance(q.get("label"), list) else q.get("label", field)
+                    break
+        
+        if not is_numeric:
+             raise HTTPException(status_code=400, detail=f"Field '{field}' is not numeric or not found in schema")
+
+        # Get total responses before filtering by numeric validity
+        base_query = self.db.query(func.count(Submission.id))
+        base_query, _ = self._apply_filters(
+            base_query, form_id, date_from, date_to, location, enumerator, filter_field, filter_value
+        )
+        total_in_filter = base_query.scalar() or 0
+
+        # Extract numeric values
+        field_attr = self._get_json_field(resolved_field)
+        query = self.db.query(field_attr)
+        query, _ = self._apply_filters(
+            query, form_id, date_from, date_to, location, enumerator, filter_field, filter_value
+        )
+        
+        # Filter out nulls and empty strings
+        query = query.filter(field_attr.isnot(None), field_attr != "")
+        
+        results = query.all()
+        
+        # Process values in Python for robust statistics
+        valid_values = []
+        for r in results:
+            val = r[0]
+            try:
+                # Convert to float
+                f_val = float(val)
+                # Exclude negative values unless allowed
+                if f_val < 0 and not allow_negative:
+                    continue
+                valid_values.append(f_val)
+            except (ValueError, TypeError):
+                continue
+
+        valid_count = len(valid_values)
+        excluded_count = total_in_filter - valid_count
+
+        if not valid_values:
+            return NumericSummaryResponse(
+                field=field,
+                valid_count=0,
+                excluded_count=excluded_count,
+                statistics=NumericStatistics(
+                    mean=0.0, median=0.0, min=0.0, max=0.0
+                )
+            )
+
+        # Calculate statistics using Pandas
+        s = pd.Series(valid_values)
+        q1 = float(s.quantile(0.25))
+        q3 = float(s.quantile(0.75))
+        
+        stats = NumericStatistics(
+            mean=round(float(s.mean()), 2),
+            median=round(float(s.median()), 2),
+            min=float(s.min()),
+            max=float(s.max()),
+            std_dev=round(float(s.std()), 2) if len(s) > 1 else 0.0,
+            q1=round(q1, 2),
+            q3=round(q3, 2),
+            iqr=round(q3 - q1, 2)
+        )
+
+        return NumericSummaryResponse(
+            field=field,
+            valid_count=valid_count,
+            excluded_count=excluded_count,
+            statistics=stats
+        )

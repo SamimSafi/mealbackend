@@ -1505,7 +1505,19 @@ def generate_box_plot(
         )
 
     # Apply simple equality / IN filters on cleaned_data/submission_data
+    from analysis_service import AnalysisService
+    service = AnalysisService(db)
+    path_mapping = service._get_full_path_mapping(form)
+    
+    # Resolve column and filters smartly
+    request_column = service._resolve_field(request.column, path_mapping)
     filters = request.filters or {}
+    resolved_filters = {}
+    for k, v in filters.items():
+        resolved_k = service._resolve_field(k, path_mapping)
+        resolved_filters[resolved_k] = v
+    filters = resolved_filters
+
     values: list[float] = []
     sample_payload_keys = None
     non_numeric_count = 0
@@ -1541,28 +1553,7 @@ def generate_box_plot(
             continue
 
         # Extract numeric column value (handle nested field names like beneficiary/hh_size)
-        # First try direct lookup (like /api/forms/{form_id}/chart-data does)
-        raw_val = None
-        if isinstance(payload, dict):
-            raw_val = payload.get(request.column)
-        
-        # If not found, try get_nested_field_value (handles nested paths like beneficiary/hh_size)
-        if raw_val in (None, ""):
-            raw_val = get_nested_field_value(payload, request.column)
-        
-        # If still not found, try common variations (beneficiary/hh_size, info/hh_size, hh_size)
-        if raw_val in (None, ""):
-            # Try variations: hh_size -> beneficiary/hh_size, info/hh_size, etc.
-            if '/' not in request.column:
-                variations = [
-                    f"beneficiary/{request.column}",
-                    f"info/{request.column}",
-                    f"group/{request.column}",
-                ]
-                for variant in variations:
-                    raw_val = get_nested_field_value(payload, variant)
-                    if raw_val not in (None, ""):
-                        break
+        raw_val = get_nested_field_value(payload, request_column)
         
         if raw_val in (None, ""):
             empty_count += 1
@@ -1577,22 +1568,24 @@ def generate_box_plot(
     if not values:
         logger.debug(f"No numeric data for column '{request.column}' - returning empty box plot")
         return BoxPlotResponse(
+            form_id=form.id,
             column=request.column,
-            q1=0,
-            median=0,
-            q3=0,
-            whisker_min=0,
-            whisker_max=0,
+            q1=0.0,
+            median=0.0,
+            q3=0.0,
+            whisker_min=0.0,
+            whisker_max=0.0,
             outliers=[],
-            iqr=0,
-            lower_bound=0,
-            upper_bound=0,
+            iqr=0.0,
+            lower_bound=0.0,
+            upper_bound=0.0,
             count=0,
             stats={
                 "total_submissions": len(submissions),
                 "checked_after_filters": total_checked,
                 "empty_values": empty_count,
                 "non_numeric_values": non_numeric_count,
+                "error": f"Field '{request.column}' contains no numeric data. Ensure you select a numeric field (integer/decimal)."
             }
         )
 
@@ -1636,6 +1629,16 @@ def generate_box_plot(
         whisker_min=whisker_min,
         whisker_max=whisker_max,
         outliers=outliers,
+        iqr=float(iqr),
+        lower_bound=float(lower_bound),
+        upper_bound=float(upper_bound),
+        count=len(series),
+        stats={
+            "total_submissions": len(submissions),
+            "checked_after_filters": total_checked,
+            "empty_values": empty_count,
+            "non_numeric_values": non_numeric_count,
+        }
     )
 
 
@@ -1656,6 +1659,12 @@ def generate_bar_chart(
         raise HTTPException(status_code=404, detail="Form not found")
 
     submissions = db.query(Submission).filter(Submission.form_id == form.id).all()
+    
+    # Smart Dimension Resolution
+    from analysis_service import AnalysisService
+    service = AnalysisService(db)
+    path_mapping = service._get_full_path_mapping(form)
+    
     filters = request.filters or {}
     
     # Auto-detect group_by from filters if not provided
@@ -1663,7 +1672,6 @@ def generate_bar_chart(
     group_by_field = request.group_by
     if not group_by_field or (isinstance(group_by_field, str) and group_by_field.strip() == ""):
         # Use the first filter field as group_by
-        # Example: {"filters": {"info/Province": []}} -> group by "info/Province"
         if filters and len(filters) > 0:
             group_by_field = list(filters.keys())[0]
         else:
@@ -1672,13 +1680,21 @@ def generate_bar_chart(
                 detail="group_by field is required. Either provide group_by parameter or send a field in filters (e.g., {\"info/Province\": []})."
             )
     
-    if not group_by_field:
-        raise HTTPException(
-            status_code=400,
-            detail="group_by field is required. Either provide group_by parameter or send a field in filters (e.g., {\"info/Province\": []})."
-        )
+    # Resolve group_by and filters smartly
+    actual_group_by = service._resolve_field(group_by_field, path_mapping)
+    
+    resolved_filters = {}
+    for k, v in filters.items():
+        resolved_k = service._resolve_field(k, path_mapping)
+        resolved_filters[resolved_k] = v
+    filters = resolved_filters
 
     counts: dict[str, int] = {}
+    
+    # Build schema maps once for label resolution
+    question_map, choice_map = {}, {}
+    if form.form_schema:
+        question_map, choice_map = build_schema_maps(form.form_schema)
 
     for sub in submissions:
         payload = sub.cleaned_data or sub.submission_data
@@ -1690,7 +1706,7 @@ def generate_bar_chart(
         matches = True
         for fname, fval in filters.items():
             # Skip the field we're grouping by - we want ALL its values, not filtered
-            if fname == group_by_field:
+            if fname == actual_group_by:
                 continue
             # Skip empty/null filter values (empty array means no filter)
             if fval is None or fval == "" or (isinstance(fval, list) and len(fval) == 0):
@@ -1709,67 +1725,30 @@ def generate_bar_chart(
             continue
 
         # Extract the grouping field value (e.g., "Kabul", "Balkh" for "info/Province")
-        # First try direct lookup (like /api/forms/{form_id}/chart-data does)
-        raw_cat = None
-        if isinstance(payload, dict):
-            raw_cat = payload.get(group_by_field)
+        raw_cat = get_nested_field_value(payload, actual_group_by)
         
-        # If not found, try get_nested_field_value (handles nested paths)
         if raw_cat in (None, ""):
-            raw_cat = get_nested_field_value(payload, group_by_field)
-        
-        # Get the actual display value, not codes
-        # Try variations if still not found (e.g., province -> info/province, beneficiary/province)
-        if raw_cat in (None, ""):
-            # Try alternative field names and common prefixes
-            alternatives = []
-            
-            # If field doesn't have slash, try with common prefixes
-            if '/' not in group_by_field:
-                alternatives.extend([
-                    f"info/{group_by_field}",
-                    f"beneficiary/{group_by_field}",
-                    f"group/{group_by_field}",
-                ])
-            
-            # Always try these variations
-            alternatives.extend([
-                group_by_field.replace('/', '_'),  # info/province -> info_province
-                group_by_field.split('/')[-1] if '/' in group_by_field else None,  # info/province -> province
-                group_by_field.lower(),
-                group_by_field.upper(),
-            ])
-            
-            for alt in alternatives:
-                if alt:
-                    raw_cat = get_nested_field_value(payload, alt)
-                    if raw_cat not in (None, ""):
-                        break
-            
-            if raw_cat in (None, ""):
-                # Skip this submission if field not found (don't count as "Unknown")
-                continue
+            # Skip this submission if field not found (don't count as "Unknown")
+            continue
         
         # Clean and normalize the category value
         category = str(raw_cat).strip()
         
         # Normalize code to label using Kobo best practices
-        # Build schema maps once and use efficient lookup
         if form.form_schema and category:
             original_category = category
-            
-            # Build schema maps (question_map and choice_map) following Kobo pattern
-            question_map, choice_map = build_schema_maps(form.form_schema)
             
             # Find the field in question_map (try multiple matching strategies)
             field_meta = None
             field_name_variations = [
-                group_by_field,
+                actual_group_by,
+                actual_group_by.lower(),
+                actual_group_by.replace("/", "_"),
+                actual_group_by.replace("/", "_").lower(),
+                actual_group_by.split("/")[-1],
+                actual_group_by.split("/")[-1].lower(),
+                group_by_field,  # Also try the original input
                 group_by_field.lower(),
-                group_by_field.replace("/", "_"),
-                group_by_field.replace("/", "_").lower(),
-                group_by_field.split("/")[-1],
-                group_by_field.split("/")[-1].lower(),
             ]
             
             for var_name in field_name_variations:
@@ -1793,21 +1772,18 @@ def generate_bar_chart(
                     for code_key, label_value in choice_map[list_name].items():
                         if str(code_key).lower() == code_lower:
                             category = label_value
-                            logger.info(f"Converted code '{original_category}' to label '{category}' for field '{group_by_field}' using schema maps")
                             break
             
             # Fallback to original lookup if schema maps didn't work
             if category == original_category:
-                label = get_choice_label(form.form_schema, group_by_field, category)
+                label = get_choice_label(form.form_schema, actual_group_by, category)
                 if label != category:
                     category = label
-                    logger.info(f"Converted code '{original_category}' to label '{category}' for field '{group_by_field}' (fallback lookup)")
                 else:
                     # Try dynamic lookup as last resort
-                    label = get_choice_label_dynamic(form.form_schema, group_by_field, category)
+                    label = get_choice_label_dynamic(form.form_schema, actual_group_by, category)
                     if label != category:
                         category = label
-                        logger.info(f"Converted code '{original_category}' to label '{category}' for field '{group_by_field}' (dynamic lookup)")
                     elif len(category) <= 5 and (
                         (len(category) >= 2 and category[0].islower() and category[1:].isdigit()) or
                         (len(category) >= 2 and category[0].isupper() and category[1:].isdigit())
@@ -1896,10 +1872,30 @@ def generate_polar_area_chart(
         raise HTTPException(status_code=404, detail="Form not found")
 
     submissions = db.query(Submission).filter(Submission.form_id == form.id).all()
+    
+    # Smart Dimension Resolution
+    from analysis_service import AnalysisService
+    service = AnalysisService(db)
+    path_mapping = service._get_full_path_mapping(form)
+    
     filters = request.filters or {}
     
+    # Resolve field and filters smartly
+    actual_field = service._resolve_field(request.field, path_mapping)
+    
+    resolved_filters = {}
+    for k, v in filters.items():
+        resolved_k = service._resolve_field(k, path_mapping)
+        resolved_filters[resolved_k] = v
+    filters = resolved_filters
+
     counts: dict[str, int] = {}
     total_with_data = 0
+    
+    # Build schema maps once for label resolution
+    question_map, choice_map = {}, {}
+    if form.form_schema:
+        question_map, choice_map = build_schema_maps(form.form_schema)
 
     for sub in submissions:
         payload = sub.cleaned_data or sub.submission_data
@@ -1924,25 +1920,7 @@ def generate_polar_area_chart(
             continue
 
         # Extract field value
-        raw_val = None
-        if isinstance(payload, dict):
-            raw_val = payload.get(request.field)
-        
-        if raw_val in (None, ""):
-            raw_val = get_nested_field_value(payload, request.field)
-        
-        # Try field name variations if not found
-        if raw_val in (None, ""):
-            if '/' not in request.field:
-                alternatives = [
-                    f"info/{request.field}",
-                    f"beneficiary/{request.field}",
-                    f"group/{request.field}",
-                ]
-                for alt in alternatives:
-                    raw_val = get_nested_field_value(payload, alt)
-                    if raw_val not in (None, ""):
-                        break
+        raw_val = get_nested_field_value(payload, actual_field)
         
         if raw_val in (None, ""):
             continue
@@ -1956,15 +1934,15 @@ def generate_polar_area_chart(
         if form.form_schema and category:
             original_category = category
             
-            question_map, choice_map = build_schema_maps(form.form_schema)
-            
             field_name_variations = [
-                request.field,
+                actual_field,
+                actual_field.lower(),
+                actual_field.replace("/", "_"),
+                actual_field.replace("/", "_").lower(),
+                actual_field.split("/")[-1],
+                actual_field.split("/")[-1].lower(),
+                request.field, # Original input
                 request.field.lower(),
-                request.field.replace("/", "_"),
-                request.field.replace("/", "_").lower(),
-                request.field.split("/")[-1],
-                request.field.split("/")[-1].lower(),
             ]
             
             field_meta = None
@@ -3006,13 +2984,34 @@ def get_form_chart_data(
         form = db.query(FormModel).filter(FormModel.id == form_id).first()
         if not form:
             raise HTTPException(status_code=404, detail="Form not found")
+            
+        # Smart Dimension Resolution (Mirror AnalysisService logic)
+        from analysis_service import AnalysisService
+        service = AnalysisService(db)
+        path_mapping = service._get_full_path_mapping(form)
         
+        actual_dimension = service._resolve_field(dimension, path_mapping)
+        actual_secondary = service._resolve_field(secondary_dimension, path_mapping)
+        actual_time = service._resolve_field(time_dimension, path_mapping)
+        
+        # Use resolved names for processing, but keep original names for response labels if needed
+        dimension = actual_dimension
+        secondary_dimension = actual_secondary
+        time_dimension = actual_time
+
         # Query submissions
         query = db.query(Submission).filter(Submission.form_id == form_id)
         submissions = query.all()
         
         # Apply filters - use cleaned_data or submission_data, and handle nested fields
         if filters:
+            # Resolve filter keys smartly
+            resolved_filters = {}
+            for k, v in filters.items():
+                resolved_k = service._resolve_field(k, path_mapping)
+                resolved_filters[resolved_k] = v
+            filters = resolved_filters
+
             filtered_submissions = []
             for sub in submissions:
                 try:
@@ -3065,6 +3064,7 @@ def get_form_chart_data(
             if dimension in ["age", "age_of_respondent", "respondent_age"]:
                 apply_age_grouping = True
             
+            chart_data = []
             if chart_type == "line" and time_dimension:
                 # Line chart: group by time dimension
                 chart_data = _process_line_chart(submissions, time_dimension, dimension, form.form_schema)
@@ -3087,6 +3087,23 @@ def get_form_chart_data(
                     chart_data = _process_bar_chart_with_grouping(submissions, dimension, _group_by_age_range)
                 else:
                     chart_data = _process_bar_chart(submissions, dimension, form.form_schema)
+            
+            # If data is empty, check if it's a type mismatch
+            if not chart_data:
+                msg = f"No data found for dimension '{dimension}'"
+                if chart_type in ["histogram", "scatter", "box_plot"]:
+                    msg += ". This chart requires numeric fields (integer/decimal)."
+                elif chart_type == "line":
+                    msg += ". This chart requires a valid time dimension (date/datetime)."
+                
+                return {
+                    "form_id": form_id,
+                    "chart_type": chart_type,
+                    "dimension": dimension,
+                    "data": [],
+                    "total": len(submissions),
+                    "warning": msg
+                }
         except Exception as e:
             logger.error(f"Error processing chart data for form {form_id}: {e}", exc_info=True)
             raise HTTPException(status_code=500, detail=f"Error processing chart data: {str(e)}")
@@ -3239,12 +3256,29 @@ def _process_line_chart(submissions: list, time_dimension: str, value_dimension:
                 if isinstance(time_value, str):
                     # Try parsing various date formats
                     date_obj = None
-                    for fmt in ["%Y-%m-%d", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%d/%m/%Y"]:
-                        try:
-                            date_obj = datetime.strptime(time_value.split("T")[0], fmt)
-                            break
-                        except:
-                            continue
+                    
+                    # 1. Try standard ISO format (most common in Kobo: 2023-10-27T10:00:00.000Z)
+                    try:
+                        # Remove 'Z' and truncate milliseconds if present for simpler parsing
+                        clean_time = time_value.replace('Z', '').split('.')[0]
+                        for fmt in ["%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d"]:
+                            try:
+                                date_obj = datetime.strptime(clean_time, fmt)
+                                break
+                            except:
+                                continue
+                    except:
+                        pass
+
+                    # 2. Try other common formats if ISO failed
+                    if not date_obj:
+                        for fmt in ["%d/%m/%Y", "%m/%d/%Y", "%Y/%m/%d"]:
+                            try:
+                                date_obj = datetime.strptime(time_value.split("T")[0].split(" ")[0], fmt)
+                                break
+                            except:
+                                continue
+                                
                     if not date_obj:
                         continue
                 else:
@@ -3260,6 +3294,7 @@ def _process_line_chart(submissions: list, time_dimension: str, value_dimension:
                     
                     # Convert code to label if possible
                     if form_schema and choice_map:
+                        original_value = value_str
                         for var_name in [value_dimension, value_dimension.lower(), value_dimension.replace("/", "_"), value_dimension.split("/")[-1]]:
                             if var_name in question_map:
                                 field_meta = question_map[var_name]
@@ -3271,6 +3306,12 @@ def _process_line_chart(submissions: list, time_dimension: str, value_dimension:
                                             value_str = label_value
                                             break
                                 break
+                        
+                        # Fallback to get_choice_label
+                        if value_str == original_value:
+                            label = get_choice_label(form_schema, value_dimension, value_str)
+                            if label != value_str:
+                                value_str = label
                     
                     if date_key not in time_data:
                         time_data[date_key] = {}
