@@ -1,6 +1,6 @@
 """Pydantic schemas for request/response validation."""
-from datetime import datetime
-from typing import Any, Optional, Literal
+from datetime import datetime, date
+from typing import Any, Optional, Literal, List, Dict
 
 from pydantic import BaseModel, EmailStr, Field
 
@@ -733,3 +733,196 @@ class NumericSummaryResponse(BaseModel):
     valid_count: int
     excluded_count: int
     statistics: NumericStatistics
+
+
+class Distribution(BaseModel):
+    """Distribution metrics for numeric fields."""
+    min: float
+    q1: float
+    median: float
+    q3: float
+    max: float
+    iqr: float
+
+
+class NumericDistributionResponse(BaseModel):
+    """Response for numeric distribution analysis."""
+    field: str
+    valid_count: int
+    excluded_count: int
+    distribution: Optional[Distribution] = None
+    statistics: Optional[dict[str, float]] = None
+    outliers: Optional[list[float]] = None
+    message: Optional[str] = None
+
+
+# Ordinal/Likert Scale Schemas
+
+class OrdinalFieldOption(BaseModel):
+    label: str
+    value: str
+
+class OrdinalFieldInfo(BaseModel):
+    name: str
+    label: str
+    options: List[OrdinalFieldOption]
+
+class OrdinalFieldsResponse(BaseModel):
+    form_id: str
+    fields: List[OrdinalFieldInfo]
+
+class OrdinalResponseItem(BaseModel):
+    option: str
+    count: int
+    percentage: float
+    order: int
+    category: str
+
+class OrdinalAnalysisSummary(BaseModel):
+    positive_percentage: float
+    negative_percentage: float
+    neutral_percentage: float
+    net_score: float
+    mean_score: Optional[float] = None
+    mode: Optional[str] = None
+    consistency_index: Optional[float] = None
+
+class OrdinalAnalysisMetadata(BaseModel):
+    form_name: str
+    question_text: str
+    options_order: List[str]
+    generated_at: datetime
+    filters_applied: Dict[str, Any]
+
+class OrdinalScaleAnalysisResponse(BaseModel):
+    field: str
+    total_responses: int
+    excluded_count: int
+    valid_responses: int
+    responses: List[OrdinalResponseItem]
+    analysis: OrdinalAnalysisSummary
+    metadata: OrdinalAnalysisMetadata
+    message: Optional[str] = None
+
+class OrdinalBatchAnalysisRequest(BaseModel):
+    form_id: str
+    fields: List[str]
+    date_from: Optional[date] = None
+    date_to: Optional[date] = None
+    location: Optional[str] = None
+    enumerator: Optional[str] = None
+    include_null: bool = False
+    decimal_places: int = 1
+
+class OrdinalBatchAnalysisResponse(BaseModel):
+    form_id: str
+    results: Dict[str, OrdinalScaleAnalysisResponse]
+
+
+class OrdinalTrendItem(BaseModel):
+    period: str
+    positive_percentage: float
+    negative_percentage: float
+    neutral_percentage: float
+    net_score: float
+    count: int
+
+class OrdinalTrendsResponse(BaseModel):
+    field: str
+    granularity: str
+    trends: List[OrdinalTrendItem]
+
+
+# Multi-Select Analysis Schemas
+
+class MultiSelectOption(BaseModel):
+    option: str
+    count: int
+    percentage: float
+    respondent_percentage: float
+
+class MultiSelectAnalysisResponse(BaseModel):
+    field: str
+    total_respondents: int
+    respondents_with_data: int
+    excluded_count: int
+    total_selections: int
+    options: List[MultiSelectOption]
+    metadata: Dict[str, Any]
+    message: Optional[str] = None
+
+class MultiSelectBatchRequest(BaseModel):
+    form_id: str
+    fields: List[str]
+    date_from: Optional[date] = None
+    date_to: Optional[date] = None
+
+class MultiSelectBatchResponse(BaseModel):
+    form_id: str
+    results: Dict[str, MultiSelectAnalysisResponse]
+
+
+class CrossTabColumnItem(BaseModel):
+    label: str
+    count: int
+    percentage: float
+
+
+class CrossTabRowItem(BaseModel):
+    label: str
+    count: int
+    columns: List[CrossTabColumnItem]
+
+
+class CrossTabTable(BaseModel):
+    rows: List[CrossTabRowItem]
+    column_totals: Dict[str, int]
+    grand_total: int
+
+
+class CrossTabMetadata(BaseModel):
+    generated_at: datetime
+    date_filter_applied: bool
+    form_name: str
+
+
+class DetailedCrossTabResponse(BaseModel):
+    success: bool
+    form_id: int
+    row_field: str
+    column_field: str
+    total_responses: int
+    excluded_count: int
+    table: CrossTabTable
+    insights: List[str]
+    metadata: CrossTabMetadata
+
+
+class TimeSeriesDataPoint(BaseModel):
+    period: str
+    label: str
+    count: int
+    cumulative: int
+
+
+class TimeSeriesResponse(BaseModel):
+    success: bool
+    form_id: int
+    form_name: str
+    date_from: str
+    date_to: str
+    group_by: str
+    total_submissions: int
+    average_per_period: float
+    trend: str
+    data: List[TimeSeriesDataPoint]
+    insights: List[str]
+
+
+class CrossTabErrorResponse(BaseModel):
+    success: bool = False
+    error: str
+    message: str
+    details: Optional[Dict[str, Any]] = None
+    available_fields: Optional[List[str]] = None
+    suggestion: Optional[str] = None
