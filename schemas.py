@@ -63,6 +63,19 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class ChangePasswordRequest(BaseModel):
+    """Schema for users changing their own password."""
+
+    old_password: str
+    new_password: str = Field(..., min_length=6)
+
+
+class ResetPasswordRequest(BaseModel):
+    """Schema for admins resetting a user's password."""
+
+    new_password: str = Field(..., min_length=6)
+
+
 # Form Schemas
 class FormBase(BaseModel):
     """Base form schema."""
@@ -203,6 +216,32 @@ class PermissionResponse(BaseModel):
     resource: str
     action: str
     created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+# User Form Access Schemas
+class UserFormAccessCreate(BaseModel):
+    """User form access creation schema."""
+
+    form_id: int
+
+
+class BulkFormAccessRequest(BaseModel):
+    """Bulk form access request schema."""
+
+    form_ids: list[int]
+
+
+class UserFormAccessResponse(BaseModel):
+    """User form access response schema."""
+
+    id: int
+    user_id: int
+    form_id: int
+    created_at: datetime
+    updated_at: datetime
 
     class Config:
         from_attributes = True

@@ -28,7 +28,7 @@ from jose import jwt
 from config import settings
 from database import get_db, init_db, migrate_db
 from models import (
-    User, Form as FormModel, Submission, Indicator, SyncLog, UserPermission, 
+    User, Form as FormModel, Submission, Indicator, SyncLog, UserPermission, UserFormAccess,
     RawSubmission, Organization, Branding, KPIDefinition, KPIValue, ReportCache, FormFieldMapping, Document
 )
 from typing import Optional
@@ -36,6 +36,8 @@ from schemas import (
     UserCreate,
     UserResponse,
     UserUpdate,
+    ChangePasswordRequest,
+    ResetPasswordRequest,
     Token,
     LoginRequest,
     FormResponse,
@@ -49,6 +51,9 @@ from schemas import (
     WebhookPayload,
     PermissionCreate,
     PermissionResponse,
+    UserFormAccessCreate,
+    BulkFormAccessRequest,
+    UserFormAccessResponse,
     ChartDataRequest,
     AggregateRequest,
     BoxPlotRequest,
@@ -92,6 +97,7 @@ from auth import (
     verify_password,
     require_role,
     get_current_user,
+    check_form_access,
 )
 from kobo_client import KoboClient
 from etl import ETLPipeline
@@ -142,7 +148,8 @@ app.add_middleware(
    allow_origins=[
         "http://localhost:5173",
         "http://localhost:3000",
-        "https://samimsafi22-001-site1.jtempurl.com",
+        "http://samimsafi12-001-site1.site4future.com",
+        "https://samimsafi12-001-site1.site4future.com",
         "https://samimsafi.pythonanywhere.com",
         "https://samimsafi.pythonanywhere.com/",  # Add with trailing slash
         "http://samimsafi.pythonanywhere.com",    # HTTP version
@@ -458,6 +465,25 @@ def get_current_user_info(
         raise HTTPException(status_code=401, detail="Invalid token")
 
 
+@app.post("/api/auth/change-password")
+def change_password(
+    password_data: ChangePasswordRequest,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    """Change current user's password."""
+    if not verify_password(password_data.old_password, current_user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Incorrect old password",
+        )
+    
+    current_user.hashed_password = get_password_hash(password_data.new_password)
+    current_user.updated_at = datetime.utcnow()
+    db.commit()
+    return {"detail": "Password changed successfully"}
+
+
 # ============================================================================
 # Base Data Endpoint (per-day survey records)
 # ============================================================================
@@ -475,6 +501,9 @@ def load_daily_data(
 
     - `date`: YYYY-MM-DD (UTC) string
     - Optional `form_id` to restrict to a single form
+    
+    - Admins see all submissions for the date
+    - Non-admin users see only submissions for their assigned forms
     """
     try:
         target_date: date_type = datetime.strptime(date, "%Y-%m-%d").date()
@@ -482,8 +511,21 @@ def load_daily_data(
         raise HTTPException(status_code=400, detail="Invalid date format, expected YYYY-MM-DD")
 
     query = db.query(Submission)
-    if form_id is not None:
+    
+    if form_id:
+        if not check_form_access(current_user, form_id, db):
+            raise HTTPException(status_code=403, detail="Access denied to this form")
         query = query.filter(Submission.form_id == form_id)
+    elif current_user.role != "admin":
+        accessible_form_ids = (
+            db.query(UserFormAccess.form_id)
+            .filter(UserFormAccess.user_id == current_user.id)
+            .all()
+        )
+        form_ids = [f[0] for f in accessible_form_ids]
+        if not form_ids:
+            return DailyDataResponse(date=target_date.isoformat(), total=0, submissions=[])
+        query = query.filter(Submission.form_id.in_(form_ids))
 
     # Prefer submitted_at if available, otherwise fall back to created_at
     day_start = datetime.combine(target_date, datetime.min.time())
@@ -562,6 +604,24 @@ def update_user(
     return user
 
 
+@app.post("/api/users/{user_id}/reset-password")
+def reset_password(
+    user_id: int,
+    password_data: ResetPasswordRequest,
+    current_user: User = Depends(require_role("admin")),
+    db: Session = Depends(get_db),
+):
+    """Reset a user's password (admin only)."""
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    user.hashed_password = get_password_hash(password_data.new_password)
+    user.updated_at = datetime.utcnow()
+    db.commit()
+    return {"detail": f"Password reset successfully for user {user.username}"}
+
+
 @app.post("/api/users/{user_id}/permissions", response_model=PermissionResponse)
 def add_user_permission(
     user_id: int,
@@ -599,6 +659,193 @@ def add_user_permission(
 
 
 # ============================================================================
+# User Form Access Endpoints
+# ============================================================================
+
+@app.post("/api/users/{user_id}/forms/{form_id}", response_model=UserFormAccessResponse)
+def assign_form_to_user(
+    user_id: int,
+    form_id: int,
+    current_user: User = Depends(require_role("admin")),
+    db: Session = Depends(get_db),
+):
+    """Assign a form to a user (admin only)."""
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    form = db.query(FormModel).filter(FormModel.id == form_id).first()
+    if not form:
+        raise HTTPException(status_code=404, detail="Form not found")
+    
+    # Check access for non-admin users
+    if not check_form_access(current_user, form_id, db):
+        raise HTTPException(status_code=403, detail="Access denied to this form")
+    
+    # Check if access already exists
+    existing = (
+        db.query(UserFormAccess)
+        .filter(
+            UserFormAccess.user_id == user_id,
+            UserFormAccess.form_id == form_id,
+        )
+        .first()
+    )
+    if existing:
+        raise HTTPException(status_code=400, detail="User already has access to this form")
+    
+    form_access = UserFormAccess(user_id=user_id, form_id=form_id)
+    db.add(form_access)
+    db.commit()
+    db.refresh(form_access)
+    return form_access
+
+
+@app.post("/api/users/{user_id}/forms/bulk")
+def bulk_assign_forms(
+    user_id: int,
+    access_data: BulkFormAccessRequest,
+    current_user: User = Depends(require_role("admin")),
+    db: Session = Depends(get_db),
+):
+    """Assign multiple forms to a user (admin only)."""
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    assigned_count = 0
+    skipped_count = 0
+    
+    for form_id in access_data.form_ids:
+        # Verify form exists
+        form = db.query(FormModel).filter(FormModel.id == form_id).first()
+        if not form:
+            skipped_count += 1
+            continue
+            
+        # Check if access already exists
+        existing = (
+            db.query(UserFormAccess)
+            .filter(
+                UserFormAccess.user_id == user_id,
+                UserFormAccess.form_id == form_id,
+            )
+            .first()
+        )
+        if existing:
+            skipped_count += 1
+            continue
+        
+        form_access = UserFormAccess(user_id=user_id, form_id=form_id)
+        db.add(form_access)
+        assigned_count += 1
+    
+    db.commit()
+    return {
+        "detail": f"Successfully assigned {assigned_count} forms. {skipped_count} skipped (already assigned or invalid)."
+    }
+
+
+@app.delete("/api/users/{user_id}/forms/{form_id}")
+def revoke_form_access(
+    user_id: int,
+    form_id: int,
+    current_user: User = Depends(require_role("admin")),
+    db: Session = Depends(get_db),
+):
+    """Revoke form access from a user (admin only)."""
+    form_access = (
+        db.query(UserFormAccess)
+        .filter(
+            UserFormAccess.user_id == user_id,
+            UserFormAccess.form_id == form_id,
+        )
+        .first()
+    )
+    if not form_access:
+        raise HTTPException(status_code=404, detail="Form access not found")
+    
+    db.delete(form_access)
+    db.commit()
+    return {"detail": "Form access revoked successfully"}
+
+
+@app.delete("/api/users/{user_id}/forms/bulk")
+def bulk_revoke_forms(
+    user_id: int,
+    access_data: BulkFormAccessRequest,
+    current_user: User = Depends(require_role("admin")),
+    db: Session = Depends(get_db),
+):
+    """Revoke multiple forms from a user (admin only)."""
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    revoked_count = 0
+    skipped_count = 0
+    
+    for form_id in access_data.form_ids:
+        form_access = (
+            db.query(UserFormAccess)
+            .filter(
+                UserFormAccess.user_id == user_id,
+                UserFormAccess.form_id == form_id,
+            )
+            .first()
+        )
+        if not form_access:
+            skipped_count += 1
+            continue
+        
+        db.delete(form_access)
+        revoked_count += 1
+    
+    db.commit()
+    return {
+        "detail": f"Successfully revoked access to {revoked_count} forms. {skipped_count} skipped (not assigned)."
+    }
+
+
+@app.get("/api/users/{user_id}/forms", response_model=list[FormResponse])
+def get_user_forms(
+    user_id: int,
+    skip: int = 0,
+    limit: int = 100,
+    current_user: User = Depends(require_role("admin")),
+    db: Session = Depends(get_db),
+):
+    """Get all forms assigned to a user (admin only)."""
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Get all forms the user has access to
+    form_access_records = (
+        db.query(UserFormAccess)
+        .filter(UserFormAccess.user_id == user_id)
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
+    
+    forms = [record.form for record in form_access_records]
+    
+    # Add submission count to each form
+    result = []
+    for form in forms:
+        form_dict = {
+            **{c.name: getattr(form, c.name) for c in form.__table__.columns},
+            "submission_count": db.query(func.count(Submission.id))
+            .filter(Submission.form_id == form.id)
+            .scalar(),
+        }
+        result.append(FormResponse(**form_dict))
+    
+    return result
+
+
+# ============================================================================
 # Form Endpoints
 # ============================================================================
 
@@ -610,8 +857,25 @@ def list_forms(
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db),
 ):
-    """List all forms from the local cache/database."""
+    """List all forms from the local cache/database.
+    
+    - Admins see all forms
+    - Non-admin users see only forms assigned to them
+    """
     query = db.query(FormModel)
+    
+    # Non-admin users only see forms assigned to them
+    if current_user.role != "admin":
+        form_ids = (
+            db.query(UserFormAccess.form_id)
+            .filter(UserFormAccess.user_id == current_user.id)
+            .all()
+        )
+        form_ids = [f[0] for f in form_ids]
+        if not form_ids:
+            return []
+        query = query.filter(FormModel.id.in_(form_ids))
+    
     if category:
         query = query.filter(FormModel.category == category)
     
@@ -655,10 +919,18 @@ def get_form(
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db),
 ):
-    """Get a specific form."""
+    """Get a specific form.
+    
+    - Admins can access any form
+    - Non-admin users can only access forms assigned to them
+    """
     form = db.query(FormModel).filter(FormModel.id == form_id).first()
     if not form:
         raise HTTPException(status_code=404, detail="Form not found")
+    
+    # Check access for non-admin users
+    if not check_form_access(current_user, form_id, db):
+        raise HTTPException(status_code=403, detail="Access denied to this form")
     
     form_dict = {
         **{c.name: getattr(form, c.name) for c in form.__table__.columns},
@@ -681,10 +953,29 @@ def list_submissions(
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db),
 ):
-    """List submissions."""
+    """List submissions.
+    
+    - Admins see all submissions (optionally filtered by form_id)
+    - Non-admin users see only submissions for forms assigned to them
+    """
     query = db.query(Submission)
+    
+    # Check access and filter by form_id if provided
     if form_id:
+        if not check_form_access(current_user, form_id, db):
+            raise HTTPException(status_code=403, detail="Access denied to this form")
         query = query.filter(Submission.form_id == form_id)
+    elif current_user.role != "admin":
+        # If no form_id, only show submissions for assigned forms
+        form_ids = (
+            db.query(UserFormAccess.form_id)
+            .filter(UserFormAccess.user_id == current_user.id)
+            .all()
+        )
+        form_ids = [f[0] for f in form_ids]
+        if not form_ids:
+            return []
+        query = query.filter(Submission.form_id.in_(form_ids))
     
     submissions = query.order_by(desc(Submission.created_at)).offset(skip).limit(limit).all()
     
@@ -718,10 +1009,17 @@ def get_submission(
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db),
 ):
-    """Get a specific submission."""
+    """Get a specific submission.
+    
+    Checks if the user has access to the form associated with this submission.
+    """
     submission = db.query(Submission).filter(Submission.id == submission_id).first()
     if not submission:
         raise HTTPException(status_code=404, detail="Submission not found")
+    
+    # Check access to the parent form
+    if not check_form_access(current_user, submission.form_id, db):
+        raise HTTPException(status_code=403, detail="Access denied to this submission's form")
     
     response = SubmissionResponse.model_validate(submission)
     response.submission_data = submission.cleaned_data or submission.submission_data or {}
@@ -739,10 +1037,30 @@ def list_indicators(
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db),
 ):
-    """List indicators."""
+    """List indicators.
+    
+    - Admins see all indicators
+    - Non-admin users see only indicators for forms assigned to them
+    """
     query = db.query(Indicator)
+    
+    # Check access and filter by form_id if provided
     if form_id:
+        if not check_form_access(current_user, form_id, db):
+            raise HTTPException(status_code=403, detail="Access denied to this form")
         query = query.filter(Indicator.form_id == form_id)
+    elif current_user.role != "admin":
+        # If no form_id, only show indicators for assigned forms
+        form_ids = (
+            db.query(UserFormAccess.form_id)
+            .filter(UserFormAccess.user_id == current_user.id)
+            .all()
+        )
+        form_ids = [f[0] for f in form_ids]
+        if not form_ids:
+            return []
+        query = query.filter(Indicator.form_id.in_(form_ids))
+        
     if category:
         query = query.join(FormModel).filter(FormModel.category == category)
     
@@ -787,6 +1105,10 @@ def get_form_indicators_summary(
     form = db.query(FormModel).filter(FormModel.id == form_id).first()
     if not form:
         raise HTTPException(status_code=404, detail="Form not found")
+    
+    # Check access for non-admin users
+    if not check_form_access(current_user, form_id, db):
+        raise HTTPException(status_code=403, detail="Access denied to this form")
 
     # Base query for this form's submissions
     submissions_query = db.query(Submission).filter(Submission.form_id == form_id)
@@ -892,6 +1214,10 @@ def get_form_aggregate_report(
     form = db.query(FormModel).filter(FormModel.id == form_id).first()
     if not form:
         raise HTTPException(status_code=404, detail="Form not found")
+    
+    # Check access for non-admin users
+    if not check_form_access(current_user, form_id, db):
+        raise HTTPException(status_code=403, detail="Access denied to this form")
 
     submissions = db.query(Submission).filter(Submission.form_id == form_id).all()
     
@@ -961,6 +1287,10 @@ def aggregate_form_data(
     form = db.query(FormModel).filter(FormModel.id == form_id).first()
     if not form:
         raise HTTPException(status_code=404, detail="Form not found")
+    
+    # Check access for non-admin users
+    if not check_form_access(current_user, form_id, db):
+        raise HTTPException(status_code=403, detail="Access denied to this form")
 
     submissions = db.query(Submission).filter(Submission.form_id == form_id).all()
     
@@ -1495,6 +1825,10 @@ def generate_box_plot(
     if not form:
         raise HTTPException(status_code=404, detail="Form not found")
 
+    # Check access for non-admin users
+    if not check_form_access(current_user, request.form_id, db):
+        raise HTTPException(status_code=403, detail="Access denied to this form")
+
     # Load all submissions for the form
     submissions = db.query(Submission).filter(Submission.form_id == form.id).all()
 
@@ -1657,6 +1991,10 @@ def generate_bar_chart(
     form = db.query(FormModel).filter(FormModel.id == request.form_id).first()
     if not form:
         raise HTTPException(status_code=404, detail="Form not found")
+
+    # Check access for non-admin users
+    if not check_form_access(current_user, request.form_id, db):
+        raise HTTPException(status_code=403, detail="Access denied to this form")
 
     submissions = db.query(Submission).filter(Submission.form_id == form.id).all()
     
@@ -1871,6 +2209,10 @@ def generate_polar_area_chart(
     if not form:
         raise HTTPException(status_code=404, detail="Form not found")
 
+    # Check access for non-admin users
+    if not check_form_access(current_user, request.form_id, db):
+        raise HTTPException(status_code=403, detail="Access denied to this form")
+
     submissions = db.query(Submission).filter(Submission.form_id == form.id).all()
     
     # Smart Dimension Resolution
@@ -2042,10 +2384,18 @@ def get_indicator(
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db),
 ):
-    """Get a specific indicator."""
+    """Get a specific indicator.
+    
+    Checks if the user has access to the form associated with this indicator.
+    """
     indicator = db.query(Indicator).filter(Indicator.id == indicator_id).first()
     if not indicator:
         raise HTTPException(status_code=404, detail="Indicator not found")
+    
+    # Check access to the parent form
+    if not check_form_access(current_user, indicator.form_id, db):
+        raise HTTPException(status_code=403, detail="Access denied to this indicator's form")
+        
     return indicator
 
 
@@ -2058,25 +2408,53 @@ def get_dashboard_summary(
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db),
 ):
-    """Get dashboard summary."""
-    total_forms = db.query(func.count(FormModel.id)).scalar()
-    total_submissions = db.query(func.count(Submission.id)).scalar()
-    total_indicators = db.query(func.count(Indicator.id)).scalar()
+    """Get dashboard summary.
+    
+    - Admins see global stats
+    - Non-admin users see stats for their assigned forms only
+    """
+    form_ids_query = db.query(FormModel.id)
+    submissions_query = db.query(Submission)
+    indicators_query = db.query(Indicator)
+    
+    if current_user.role != "admin":
+        accessible_form_ids = (
+            db.query(UserFormAccess.form_id)
+            .filter(UserFormAccess.user_id == current_user.id)
+            .all()
+        )
+        form_ids = [f[0] for f in accessible_form_ids]
+        if not form_ids:
+            return DashboardSummary(
+                total_forms=0,
+                total_submissions=0,
+                total_indicators=0,
+                recent_submissions=0,
+                forms_by_category={},
+                submissions_by_date=[]
+            )
+        form_ids_query = form_ids_query.filter(FormModel.id.in_(form_ids))
+        submissions_query = submissions_query.filter(Submission.form_id.in_(form_ids))
+        indicators_query = indicators_query.filter(Indicator.form_id.in_(form_ids))
+
+    total_forms = form_ids_query.count()
+    total_submissions = submissions_query.count()
+    total_indicators = indicators_query.count()
     
     # Recent submissions (last 7 days)
     seven_days_ago = datetime.utcnow() - timedelta(days=7)
     recent_submissions = (
-        db.query(func.count(Submission.id))
+        submissions_query
         .filter(Submission.created_at >= seven_days_ago)
-        .scalar()
+        .count()
     )
     
     # Forms by category
     forms_by_category = {}
-    categories = db.query(FormModel.category).distinct().all()
+    categories = form_ids_query.with_entities(FormModel.category).distinct().all()
     for (category,) in categories:
         if category:
-            count = db.query(func.count(FormModel.id)).filter(FormModel.category == category).scalar()
+            count = form_ids_query.filter(FormModel.category == category).count()
             forms_by_category[category] = count
     
     # Submissions by date (last 30 days)
@@ -2086,9 +2464,9 @@ def get_dashboard_summary(
         date_start = date.replace(hour=0, minute=0, second=0, microsecond=0)
         date_end = date.replace(hour=23, minute=59, second=59, microsecond=999999)
         count = (
-            db.query(func.count(Submission.id))
+            submissions_query
             .filter(Submission.created_at >= date_start, Submission.created_at <= date_end)
-            .scalar()
+            .count()
         )
         submissions_by_date.append({"date": date_start.isoformat(), "count": count})
     
@@ -2108,8 +2486,25 @@ def get_indicator_dashboard(
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db),
 ):
-    """Get indicator dashboard data."""
+    """Get indicator dashboard data.
+    
+    - Admins see all indicators
+    - Non-admin users see only indicators for their assigned forms
+    """
     query = db.query(Indicator)
+    
+    form_ids = []
+    if current_user.role != "admin":
+        accessible_form_ids = (
+            db.query(UserFormAccess.form_id)
+            .filter(UserFormAccess.user_id == current_user.id)
+            .all()
+        )
+        form_ids = [f[0] for f in accessible_form_ids]
+        if not form_ids:
+            return IndicatorDashboardData(indicators=[], trends=[], by_category={})
+        query = query.filter(Indicator.form_id.in_(form_ids))
+
     if category:
         query = query.join(FormModel).filter(FormModel.category == category)
     
@@ -2130,11 +2525,16 @@ def get_indicator_dashboard(
         date = datetime.utcnow() - timedelta(days=29 - i)
         date_start = date.replace(hour=0, minute=0, second=0, microsecond=0)
         date_end = date.replace(hour=23, minute=59, second=59, microsecond=999999)
-        count = (
-            db.query(func.count(Indicator.id))
-            .filter(Indicator.computed_at >= date_start, Indicator.computed_at <= date_end)
-            .scalar()
+        
+        trends_query = db.query(func.count(Indicator.id)).filter(
+            Indicator.computed_at >= date_start, 
+            Indicator.computed_at <= date_end
         )
+        
+        if current_user.role != "admin":
+            trends_query = trends_query.filter(Indicator.form_id.in_(form_ids))
+            
+        count = trends_query.scalar()
         trends.append({"date": date_start.isoformat(), "count": count})
     
     return IndicatorDashboardData(
@@ -2149,11 +2549,33 @@ def get_accountability_dashboard(
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db),
 ):
-    """Get accountability and complaints dashboard data."""
+    """Get accountability and complaints dashboard data.
+    
+    - Admins see all accountability data
+    - Non-admin users see data for their assigned forms only
+    """
     # Get complaints (assuming forms with category "complaints" or "accountability")
-    complaint_forms = db.query(FormModel).filter(
+    query = db.query(FormModel).filter(
         (FormModel.category == "complaints") | (FormModel.category == "accountability")
-    ).all()
+    )
+    
+    if current_user.role != "admin":
+        accessible_form_ids = (
+            db.query(UserFormAccess.form_id)
+            .filter(UserFormAccess.user_id == current_user.id)
+            .all()
+        )
+        form_ids = [f[0] for f in accessible_form_ids]
+        if not form_ids:
+            return AccountabilityDashboardData(
+                complaints=[],
+                complaints_by_status={},
+                complaints_by_location=[],
+                trends=[]
+            )
+        query = query.filter(FormModel.id.in_(form_ids))
+        
+    complaint_forms = query.all()
     
     form_ids = [f.id for f in complaint_forms]
     complaints = db.query(Submission).filter(Submission.form_id.in_(form_ids)).all() if form_ids else []
@@ -2217,6 +2639,9 @@ def get_survey_summary(
     
     Includes: total submissions, completion rate, question-wise summaries.
     """
+    if not check_form_access(current_user, form_id, db):
+        raise HTTPException(status_code=403, detail="Access denied to this form")
+    
     try:
         filters_request = {
             "date_from": date_from,
@@ -2257,6 +2682,20 @@ def get_indicator_report(
         form_id_list = []
         if form_ids:
             form_id_list = [int(x) for x in form_ids.split(",")]
+            # Check access for all provided forms
+            for fid in form_id_list:
+                if not check_form_access(current_user, fid, db):
+                    raise HTTPException(status_code=403, detail=f"Access denied to form {fid}")
+        elif current_user.role != "admin":
+            # If no forms provided, only show accessible forms
+            accessible_form_ids = (
+                db.query(UserFormAccess.form_id)
+                .filter(UserFormAccess.user_id == current_user.id)
+                .all()
+            )
+            form_id_list = [f[0] for f in accessible_form_ids]
+            if not form_id_list:
+                return {"indicators": [], "trends": [], "by_category": {}, "total_submissions": 0}
         
         filters_request = {
             "date_from": date_from,
@@ -2296,12 +2735,27 @@ def get_demographics_report(
     Automatically detects demographic fields from form schema.
     Works with Child Protection & Education forms.
     """
+    if form_id and not check_form_access(current_user, form_id, db):
+        raise HTTPException(status_code=403, detail="Access denied to this form")
+        
     try:
+        form_ids = [form_id] if form_id else []
+        if not form_id and current_user.role != "admin":
+            # Filter by accessible forms
+            accessible_form_ids = (
+                db.query(UserFormAccess.form_id)
+                .filter(UserFormAccess.user_id == current_user.id)
+                .all()
+            )
+            form_ids = [f[0] for f in accessible_form_ids]
+            if not form_ids:
+                return {"age_distribution": [], "gender_distribution": [], "household_size_distribution": [], "total_submissions": 0}
+
         filters_request = {
             "date_from": date_from,
             "date_to": date_to,
             "locations": [],
-            "form_ids": [form_id] if form_id else [],
+            "form_ids": form_ids,
             "field_filters": {},
             "exclude_incomplete": False,
         }
@@ -2334,12 +2788,27 @@ def get_geospatial_report(
     
     Shows where surveys were conducted and coverage by location.
     """
+    if form_id and not check_form_access(current_user, form_id, db):
+        raise HTTPException(status_code=403, detail="Access denied to this form")
+
     try:
+        form_ids = [form_id] if form_id else []
+        if not form_id and current_user.role != "admin":
+            # Filter by accessible forms
+            accessible_form_ids = (
+                db.query(UserFormAccess.form_id)
+                .filter(UserFormAccess.user_id == current_user.id)
+                .all()
+            )
+            form_ids = [f[0] for f in accessible_form_ids]
+            if not form_ids:
+                return {"points": [], "bounds": None, "total_submissions": 0}
+
         filters_request = {
             "date_from": date_from,
             "date_to": date_to,
             "locations": [],
-            "form_ids": [form_id] if form_id else [],
+            "form_ids": form_ids,
             "field_filters": {},
             "exclude_incomplete": False,
         }
@@ -2378,6 +2847,20 @@ def get_trend_report(
         form_id_list = []
         if form_ids:
             form_id_list = [int(x) for x in form_ids.split(",")]
+            # Check access for all provided forms
+            for fid in form_id_list:
+                if not check_form_access(current_user, fid, db):
+                    raise HTTPException(status_code=403, detail=f"Access denied to form {fid}")
+        elif current_user.role != "admin":
+            # If no forms provided, only show accessible forms
+            accessible_form_ids = (
+                db.query(UserFormAccess.form_id)
+                .filter(UserFormAccess.user_id == current_user.id)
+                .all()
+            )
+            form_id_list = [f[0] for f in accessible_form_ids]
+            if not form_id_list:
+                return {"kpi_code": kpi_code, "granularity": granularity, "data": [], "total_submissions": 0}
         
         filters_request = {
             "date_from": date_from,
@@ -2418,16 +2901,30 @@ def get_program_comparison_report(
     
     dimension: 'form_id', 'location', 'district', or any custom field
     kpi_code: KPI to compare (required)
+    
+    - Admins see comparison across all forms
+    - Non-admin users see comparison across their assigned forms only
     """
     try:
         if not kpi_code:
             raise HTTPException(status_code=400, detail="kpi_code is required")
         
+        form_ids = []
+        if current_user.role != "admin":
+            accessible_form_ids = (
+                db.query(UserFormAccess.form_id)
+                .filter(UserFormAccess.user_id == current_user.id)
+                .all()
+            )
+            form_ids = [f[0] for f in accessible_form_ids]
+            if not form_ids:
+                return {"dimension": dimension, "kpi_code": kpi_code, "data": [], "total_submissions": 0}
+
         filters_request = {
             "date_from": date_from,
             "date_to": date_to,
             "locations": [],
-            "form_ids": [],
+            "form_ids": form_ids,
             "field_filters": {},
             "exclude_incomplete": False,
         }
@@ -2519,6 +3016,10 @@ def clear_form_data(
     form = db.query(FormModel).filter(FormModel.id == form_id).first()
     if not form:
         raise HTTPException(status_code=404, detail="Form not found")
+    
+    # Check access for non-admin users
+    if not check_form_access(current_user, form_id, db):
+        raise HTTPException(status_code=403, detail="Access denied to this form")
     
     try:
         # Delete indicators
@@ -2650,6 +3151,10 @@ def get_form_schema(
     if not form:
         raise HTTPException(status_code=404, detail="Form not found")
     
+    # Check access for non-admin users
+    if not check_form_access(current_user, form_id, db):
+        raise HTTPException(status_code=403, detail="Access denied to this form")
+    
     return {
         "form_id": form.id,
         "form_name": form.title,
@@ -2668,6 +3173,10 @@ def debug_form_schema(
     form = db.query(FormModel).filter(FormModel.id == form_id).first()
     if not form:
         raise HTTPException(status_code=404, detail="Form not found")
+    
+    # Check access for non-admin users
+    if not check_form_access(current_user, form_id, db):
+        raise HTTPException(status_code=403, detail="Access denied to this form")
     
     schema = form.form_schema or {}
     if isinstance(schema, str):
@@ -2736,6 +3245,10 @@ def get_form_filter_fields(
     form = db.query(FormModel).filter(FormModel.id == form_id).first()
     if not form:
         raise HTTPException(status_code=404, detail="Form not found")
+    
+    # Check access for non-admin users
+    if not check_form_access(current_user, form_id, db):
+        raise HTTPException(status_code=403, detail="Access denied to this form")
     
     # Handle form_schema - it might be a dict, JSON string, or None
     schema = form.form_schema or {}
@@ -2984,6 +3497,10 @@ def get_form_chart_data(
         form = db.query(FormModel).filter(FormModel.id == form_id).first()
         if not form:
             raise HTTPException(status_code=404, detail="Form not found")
+            
+        # Check access for non-admin users
+        if not check_form_access(current_user, form_id, db):
+            raise HTTPException(status_code=403, detail="Access denied to this form")
             
         # Smart Dimension Resolution (Mirror AnalysisService logic)
         from analysis_service import AnalysisService
@@ -3478,6 +3995,10 @@ def get_form_submissions(
     if not form:
         raise HTTPException(status_code=404, detail="Form not found")
     
+    # Check access for non-admin users
+    if not check_form_access(current_user, form_id, db):
+        raise HTTPException(status_code=403, detail="Access denied to this form")
+    
     query = db.query(Submission).filter(Submission.form_id == form_id)
     
     # Apply filters if provided (simplified - use proper JSON querying in production)
@@ -3508,6 +4029,10 @@ def get_submission_details(
     form = db.query(FormModel).filter(FormModel.id == form_id).first()
     if not form:
         raise HTTPException(status_code=404, detail="Form not found")
+    
+    # Check access for non-admin users
+    if not check_form_access(current_user, form_id, db):
+        raise HTTPException(status_code=403, detail="Access denied to this form")
     
     if not submission_id:
         raise HTTPException(status_code=400, detail="submission_id is required")
@@ -3547,6 +4072,10 @@ def get_form_table(
     form = db.query(FormModel).filter(FormModel.id == form_id).first()
     if not form:
         raise HTTPException(status_code=404, detail="Form not found")
+    
+    # Check access for non-admin users
+    if not check_form_access(current_user, form_id, db):
+        raise HTTPException(status_code=403, detail="Access denied to this form")
     
     total_count = db.query(Submission).filter(Submission.form_id == form_id).count()
     
@@ -3657,6 +4186,10 @@ def get_form_map_data(
         form = db.query(FormModel).filter(FormModel.id == form_id).first()
         if not form:
             raise HTTPException(status_code=404, detail="Form not found")
+        
+        # Check access for non-admin users
+        if not check_form_access(current_user, form_id, db):
+            raise HTTPException(status_code=403, detail="Access denied to this form")
         
         query = db.query(Submission).filter(
             Submission.form_id == form_id,
@@ -3774,6 +4307,10 @@ def get_form_grouped_data(
         form = db.query(FormModel).filter(FormModel.id == form_id).first()
         if not form:
             raise HTTPException(status_code=404, detail="Form not found")
+        
+        # Check access for non-admin users
+        if not check_form_access(current_user, form_id, db):
+            raise HTTPException(status_code=403, detail="Access denied to this form")
         
         dimension = request_data.dimension
         secondary_dimension = request_data.secondary_dimension

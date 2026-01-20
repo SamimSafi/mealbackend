@@ -40,7 +40,7 @@ def init_db():
     # IMPORTANT: Import models inside the function to avoid circular imports
     from models import (
         Organization, User, Branding, Form, RawSubmission, 
-        Submission, Indicator, UserPermission, SyncLog,
+        Submission, Indicator, UserPermission, UserFormAccess, SyncLog,
         KPIDefinition, KPIValue, ReportCache, FormFieldMapping,
         DatabaseMigration, Document
     )

@@ -170,3 +170,24 @@ def require_permission(resource: str, action: str):
         )
 
     return permission_checker
+
+
+def check_form_access(current_user: User, form_id: int, db: Session) -> bool:
+    """Check if user has access to a form.
+    
+    - Admins always have access
+    - Non-admins need explicit form access
+    """
+    if current_user.role == "admin":
+        return True
+    
+    from models import UserFormAccess
+    has_access = (
+        db.query(UserFormAccess)
+        .filter(
+            UserFormAccess.user_id == current_user.id,
+            UserFormAccess.form_id == form_id,
+        )
+        .first()
+    )
+    return has_access is not None

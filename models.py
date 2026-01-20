@@ -76,6 +76,7 @@ class User(Base):
     # Relationships
     permissions = relationship("UserPermission", back_populates="user", cascade="all, delete-orphan")
     organization = relationship("Organization", back_populates="users")
+    form_access = relationship("UserFormAccess", back_populates="user", cascade="all, delete-orphan")
 
 
 class UserPermission(Base):
@@ -91,6 +92,27 @@ class UserPermission(Base):
 
     # Relationships
     user = relationship("User", back_populates="permissions")
+
+
+class UserFormAccess(Base):
+    """User-Form access mapping model."""
+
+    __tablename__ = "user_form_access"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    form_id = Column(Integer, ForeignKey("forms.id"), nullable=False, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    # Relationships
+    user = relationship("User", back_populates="form_access")
+    form = relationship("Form", back_populates="form_access")
+
+    # Unique constraint to prevent duplicate access assignments
+    __table_args__ = (
+        __import__('sqlalchemy').UniqueConstraint('user_id', 'form_id', name='unique_user_form_access'),
+    )
 
 
 class Form(Base):
@@ -114,6 +136,7 @@ class Form(Base):
     submissions = relationship("Submission", back_populates="form", cascade="all, delete-orphan")
     indicators = relationship("Indicator", back_populates="form", cascade="all, delete-orphan")
     kpi_values = relationship("KPIValue", back_populates="form", cascade="all, delete-orphan")
+    form_access = relationship("UserFormAccess", back_populates="form", cascade="all, delete-orphan")
 
 
 class RawSubmission(Base):
