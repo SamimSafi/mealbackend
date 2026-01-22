@@ -78,7 +78,7 @@ class AnalysisService:
             enum_attr = self._get_json_field("_submitted_by")
             query = query.filter(enum_attr == enumerator)
 
-        if filter_field and filter_value:
+        if filter_field and filter_value and filter_value.lower() != 'all':
             f_attr = self._get_json_field(filter_field)
             if f_attr is not None:
                 query = query.filter(f_attr == filter_value)

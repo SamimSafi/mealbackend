@@ -118,7 +118,7 @@ def migrate_db():
     Run database migrations and schema updates.
     Called automatically on app startup.
     """
-    from models import DatabaseMigration, Organization, User
+    from models import DatabaseMigration, Organization, User, UserFormAccess, UserPermission
     from auth import get_password_hash
     from migrations import check_schema_changes
     
@@ -126,10 +126,13 @@ def migrate_db():
     try:
         logger.info("Running database migrations...")
         
+        # Always attempt to create all tables if they don't exist
+        Base.metadata.create_all(bind=engine)
+        
         if not check_schema_changes(engine, Base):
-            logger.info("Schema changes detected, recreating tables...")
+            logger.info("Schema changes detected, ensuring all tables exist...")
             Base.metadata.create_all(bind=engine)
-            logger.info("Tables recreated successfully")
+            logger.info("Tables updated successfully")
         
         org_exists = db.query(Organization).filter(Organization.name == "Default").first()
         if not org_exists:

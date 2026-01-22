@@ -1,6 +1,7 @@
 """Application configuration."""
 import os
 from pathlib import Path
+from typing import Optional
 from pydantic import computed_field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -14,6 +15,7 @@ class Settings(BaseSettings):
 
     # Database - supports both SQLite (local) and MySQL (production)
     ENVIRONMENT: str = os.getenv("ENVIRONMENT", "local")
+    RAW_DATABASE_URL: Optional[str] = os.getenv("DATABASE_URL")
     
     # MySQL settings (for production/PythonAnywhere)
     MYSQL_HOST: str = os.getenv("MYSQL_HOST", "samimsafi.mysql.pythonanywhere-services.com")
@@ -28,6 +30,10 @@ class Settings(BaseSettings):
     @property
     def DATABASE_URL(self) -> str:
         """Get database URL based on environment."""
+        # Prioritize explicit DATABASE_URL from environment if it's not sqlite-default
+        if self.RAW_DATABASE_URL and not self.RAW_DATABASE_URL.startswith("sqlite:///./data/kobo"):
+            return self.RAW_DATABASE_URL
+
         if self.ENVIRONMENT.lower() == "production":
             # MySQL for production/PythonAnywhere
             url = f"mysql+pymysql://{self.MYSQL_USER}:{self.MYSQL_PASSWORD}@{self.MYSQL_HOST}/{self.MYSQL_DATABASE}"

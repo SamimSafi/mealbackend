@@ -292,7 +292,7 @@ def get_ordinal_scale_analysis(
     location: Optional[str] = None,
     enumerator: Optional[str] = None,
     include_null: bool = Query(False, description="Include null responses"),
-    decimal_places: int = Query(1, ge=0, le=2),
+    decimal_places: int = Query(1, ge=0, le=5),
     response_type: Optional[str] = Query(None, description="all/positive/neutral/negative"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)

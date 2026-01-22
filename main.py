@@ -141,6 +141,9 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Force migration on import for environments where lifespan isn't triggered
+migrate_db()
+
 
 # CORS middleware
 app.add_middleware(
@@ -602,6 +605,32 @@ def update_user(
     db.commit()
     db.refresh(user)
     return user
+
+
+@app.delete("/api/users/{user_id}")
+def delete_user(
+    user_id: int,
+    current_user: User = Depends(require_role("admin")),
+    db: Session = Depends(get_db),
+):
+    """Delete a user (admin only)."""
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Prevent self-deletion
+    if user.id == current_user.id:
+        raise HTTPException(status_code=400, detail="Cannot delete your own account")
+    
+    # Prevent deleting the last admin
+    if user.role == "admin":
+        admin_count = db.query(User).filter(User.role == "admin").count()
+        if admin_count <= 1:
+            raise HTTPException(status_code=400, detail="Cannot delete the last admin user")
+    
+    db.delete(user)
+    db.commit()
+    return {"detail": f"User {user.username} deleted successfully"}
 
 
 @app.post("/api/users/{user_id}/reset-password")

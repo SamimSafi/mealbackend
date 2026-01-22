@@ -220,7 +220,7 @@ class FilterContext:
             for field_name, filter_value in self.field_filters.items():
                 submission_value = get_nested_field_value(payload, field_name)
                 
-                if filter_value is None or filter_value == "" or filter_value == []:
+                if filter_value is None or filter_value == "" or filter_value == [] or (isinstance(filter_value, str) and filter_value.lower() == "all"):
                     continue
                 
                 if isinstance(filter_value, list):
@@ -237,21 +237,21 @@ class FilterContext:
         if location.is_empty():
             return True
         
-        if location.dimension_1:
+        if location.dimension_1 and str(location.dimension_1).lower() != "all":
             field_name = self.geo_fields.get("dimension_1", "location_name")
             if field_name:
                 value = get_nested_field_value(payload, field_name)
                 if str(value) != str(location.dimension_1):
                     return False
         
-        if location.dimension_2:
+        if location.dimension_2 and str(location.dimension_2).lower() != "all":
             field_name = self.geo_fields.get("dimension_2")
             if field_name:
                 value = get_nested_field_value(payload, field_name)
                 if str(value) != str(location.dimension_2):
                     return False
         
-        if location.dimension_3:
+        if location.dimension_3 and str(location.dimension_3).lower() != "all":
             field_name = self.geo_fields.get("dimension_3")
             if field_name:
                 value = get_nested_field_value(payload, field_name)

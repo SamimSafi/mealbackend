@@ -851,7 +851,7 @@ class OrdinalBatchAnalysisRequest(BaseModel):
     location: Optional[str] = None
     enumerator: Optional[str] = None
     include_null: bool = False
-    decimal_places: int = 1
+    decimal_places: int = Field(1, ge=0, le=5)
 
 class OrdinalBatchAnalysisResponse(BaseModel):
     form_id: str
