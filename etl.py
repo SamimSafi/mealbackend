@@ -1,6 +1,8 @@
 """ETL pipeline for processing Kobo data."""
 import logging
 import math
+import time
+import requests
 from datetime import datetime
 from typing import Any, Optional
 
@@ -247,6 +249,35 @@ class ETLPipeline:
 
         return lat, lng, location_name
 
+    def reverse_geocode(self, lat: float, lng: float) -> tuple[Optional[str], Optional[str]]:
+        """
+        Resolve province and district from coordinates using Nominatim.
+        """
+        if lat is None or lng is None:
+            return None, None
+
+        try:
+            # Simple rate limiting: wait 1 second between calls if needed
+            # For better performance, an in-memory cache should be used
+            url = f"https://nominatim.openstreetmap.org/reverse?lat={lat}&lon={lng}&format=jsonv2&addressdetails=1"
+            headers = {
+                'User-Agent': 'MealSystemDashboard/1.0'
+            }
+            response = requests.get(url, headers=headers, timeout=5)
+            if response.status_code == 200:
+                data = response.json()
+                address = data.get('address', {})
+                
+                # Afghanistan/Generic administrative level mapping
+                province = address.get('state') or address.get('province') or address.get('region')
+                district = address.get('county') or address.get('district') or address.get('city') or address.get('town')
+                
+                return province, district
+        except Exception as e:
+            logger.warning(f"Reverse geocoding failed for {lat}, {lng}: {e}")
+            
+        return None, None
+
     def sync_form(self, kobo_form_id: str, sync_type: str = "incremental") -> SyncLog:
         """Sync a form from Kobo."""
         sync_log = SyncLog(
@@ -329,6 +360,34 @@ class ETLPipeline:
                 cleaned_data = self.clean_submission_data(kobo_submission, form=form)
                 lat, lng, loc_name = self.extract_location(kobo_submission)
                 
+                # Resolve province and district from data or reverse geocoding
+                province = None
+                district = None
+                
+                # Try to find in cleaned data first
+                for key, val in cleaned_data.items():
+                    if not province and "province" in key.lower() and val:
+                        province = str(val)
+                    if not district and "district" in key.lower() and val:
+                        district = str(val)
+                
+                # If not found but we have coordinates, reverse geocode
+                if (not province or not district) and lat is not None and lng is not None:
+                    res_province, res_district = self.reverse_geocode(lat, lng)
+                    if not province: province = res_province
+                    if not district: district = res_district
+                    
+                    # Store resolved values in cleaned_data too
+                    if res_province: cleaned_data["resolved_province"] = res_province
+                    if res_district: cleaned_data["resolved_district"] = res_district
+                
+                # If location_name is still None but we have province/district, set it
+                if not loc_name and (province or district):
+                    if province and district:
+                        loc_name = f"{province}, {district}"
+                    else:
+                        loc_name = province or district
+                
                 submitted_at = None
                 if "_submission_time" in kobo_submission:
                     try:
@@ -345,6 +404,8 @@ class ETLPipeline:
                     existing.location_lat = lat
                     existing.location_lng = lng
                     existing.location_name = loc_name
+                    existing.province = province
+                    existing.district = district
                     existing.updated_at = datetime.utcnow()
                     records_updated += 1
                 else:
@@ -358,6 +419,8 @@ class ETLPipeline:
                         location_lat=lat,
                         location_lng=lng,
                         location_name=loc_name,
+                        province=province,
+                        district=district
                     )
                     self.db.add(submission)
                     records_added += 1

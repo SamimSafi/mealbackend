@@ -169,6 +169,8 @@ class Submission(Base):
     location_lat = Column(Float, nullable=True)
     location_lng = Column(Float, nullable=True)
     location_name = Column(String(500), nullable=True)
+    province = Column(String(255), nullable=True, index=True)
+    district = Column(String(255), nullable=True, index=True)
     processed_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)

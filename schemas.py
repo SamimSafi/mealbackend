@@ -148,6 +148,8 @@ class SubmissionResponse(SubmissionBase):
     location_lat: Optional[float] = None
     location_lng: Optional[float] = None
     location_name: Optional[str] = None
+    province: Optional[str] = None
+    district: Optional[str] = None
     created_at: datetime
 
     class Config:
@@ -765,6 +767,8 @@ class AnalysisFiltersResponse(BaseModel):
     numeric_fields: list[dict[str, Any]]      # For Histogram, Scatter, Box Plot
     date_fields: list[dict[str, Any]]         # For Line Chart
     locations: list[str]
+    provinces: Optional[list[str]] = None
+    districts: Optional[list[str]] = None
     enumerators: list[str]
     date_range: dict[str, Optional[str]]
 

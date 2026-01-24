@@ -238,13 +238,27 @@ class AnalysisService:
                 elif q_type in ["date", "datetime", "today", "start", "end"]:
                     date_fields.append(field_info)
 
-        # 2. Locations
+        # 2. Locations, Provinces, and Districts
         locations = self.db.query(Submission.location_name).filter(
             Submission.form_id == form.id,
             Submission.location_name.isnot(None),
             Submission.location_name != ""
         ).distinct().all()
         location_list = sorted([l[0] for l in locations])
+
+        provinces = self.db.query(Submission.province).filter(
+            Submission.form_id == form.id,
+            Submission.province.isnot(None),
+            Submission.province != ""
+        ).distinct().all()
+        province_list = sorted([p[0] for p in provinces])
+
+        districts = self.db.query(Submission.district).filter(
+            Submission.form_id == form.id,
+            Submission.district.isnot(None),
+            Submission.district != ""
+        ).distinct().all()
+        district_list = sorted([d[0] for d in districts])
 
         # 3. Enumerators
         enum_attr = self._get_json_field("_submitted_by")
@@ -272,6 +286,8 @@ class AnalysisService:
             numeric_fields=numeric_fields,
             date_fields=date_fields,
             locations=location_list,
+            provinces=province_list,
+            districts=district_list,
             enumerators=enumerator_list,
             date_range=date_range
         )
