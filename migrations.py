@@ -109,6 +109,40 @@ class MigrationManager:
             return False
 
 
+def apply_schema_updates(engine, Base):
+    """
+    Automatically apply simple schema updates (like adding missing columns).
+    """
+    try:
+        inspector = inspect(engine)
+        model_tables = Base.metadata.tables.keys()
+        
+        for table_name in model_tables:
+            model_table = Base.metadata.tables[table_name]
+            db_columns = {col['name'] for col in inspector.get_columns(table_name)}
+            
+            for column in model_table.columns:
+                if column.name not in db_columns:
+                    logger.info(f"Adding missing column {column.name} to table {table_name}")
+                    
+                    # Determine column type string for SQL
+                    col_type = str(column.type).split('(')[0]
+                    if 'VARCHAR' in str(column.type):
+                        col_type = f"VARCHAR({column.type.length})"
+                    
+                    alter_query = f"ALTER TABLE {table_name} ADD COLUMN {column.name} {col_type}"
+                    
+                    with engine.connect() as conn:
+                        from sqlalchemy import text
+                        conn.execute(text(alter_query))
+                        conn.commit()
+                    logger.info(f"Successfully added column {column.name}")
+        return True
+    except Exception as e:
+        logger.error(f"Error applying schema updates: {e}")
+        return False
+
+
 def check_schema_changes(engine, Base) -> bool:
     """
     Detect if there are schema changes between models and database.

@@ -120,7 +120,7 @@ def migrate_db():
     """
     from models import DatabaseMigration, Organization, User, UserFormAccess, UserPermission
     from auth import get_password_hash
-    from migrations import check_schema_changes
+    from migrations import check_schema_changes, apply_schema_updates
     
     db = SessionLocal()
     try:
@@ -130,9 +130,9 @@ def migrate_db():
         Base.metadata.create_all(bind=engine)
         
         if not check_schema_changes(engine, Base):
-            logger.info("Schema changes detected, ensuring all tables exist...")
-            Base.metadata.create_all(bind=engine)
-            logger.info("Tables updated successfully")
+            logger.info("Schema changes detected, applying updates...")
+            apply_schema_updates(engine, Base)
+            logger.info("Database schema updated successfully")
         
         org_exists = db.query(Organization).filter(Organization.name == "Default").first()
         if not org_exists:
