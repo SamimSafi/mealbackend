@@ -1,8 +1,23 @@
 """Pydantic schemas for request/response validation."""
 from datetime import datetime, date
 from typing import Any, Optional, Literal, List, Dict
+from enum import Enum
 
 from pydantic import BaseModel, EmailStr, Field
+
+
+class GroupBy(str, Enum):
+    year = "year"
+    month = "month"
+    day = "day"
+    hour_2 = "hour_2"
+
+
+class TimeSeriesMode(str, Enum):
+    range = "range"
+    last_30_days = "last_30_days"
+    last_24_hours = "last_24_hours"
+    all_time = "all_time"
 
 
 # User Schemas
@@ -956,6 +971,7 @@ class TimeSeriesResponse(BaseModel):
     trend: str
     data: List[TimeSeriesDataPoint]
     insights: List[str]
+    field_labels: Optional[Dict[str, str]] = None
 
 
 class CrossTabErrorResponse(BaseModel):

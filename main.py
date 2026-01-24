@@ -84,6 +84,9 @@ from schemas import (
     PolarAreaChartResponse,
     AggregateReportResponse,
     GenderRatioItem,
+    GroupBy,
+    TimeSeriesMode,
+    TimeSeriesResponse,
 )
 from dynamic_field_detector import (
     detect_province_field,
@@ -2655,6 +2658,120 @@ def get_accountability_dashboard(
 # NGO Reports & Dashboards - NEW
 # ============================================================================
 
+@app.get("/api/reports/submissions/time-series", response_model=TimeSeriesResponse)
+def get_time_series_report(
+    request: Request,
+    form_id: Optional[int] = None,
+    asset_uid: Optional[str] = None,
+    start: Optional[datetime] = None,
+    end: Optional[datetime] = None,
+    year: Optional[int] = None,
+    month: Optional[int] = None,
+    tz: str = "Asia/Kabul",
+    group_by: GroupBy = GroupBy.day,
+    mode: TimeSeriesMode = TimeSeriesMode.range,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Get time series report for form submissions.
+    
+    Supports filtering by form_id/asset_uid, date range, year/month, and any other field filters.
+    """
+    if asset_uid:
+        form = db.query(FormModel).filter(FormModel.kobo_form_id == asset_uid).first()
+        if not form:
+            raise HTTPException(status_code=404, detail="Form not found")
+        form_id = form.id
+    else:
+        form = db.query(FormModel).filter(FormModel.id == form_id).first()
+        
+    if not form:
+        raise HTTPException(status_code=400, detail="Valid form_id or asset_uid is required")
+        
+    if not check_form_access(current_user, form.id, db):
+        raise HTTPException(status_code=403, detail="Access denied to this form")
+        
+    try:
+        # Resolve Year/Month Convenience
+        if year:
+            mode = TimeSeriesMode.range
+            if month:
+                start = datetime(year, month, 1)
+                if month == 12:
+                    end = datetime(year + 1, 1, 1)
+                else:
+                    end = datetime(year, month + 1, 1)
+                if group_by in [GroupBy.year, GroupBy.month]:
+                    group_by = GroupBy.day
+            else:
+                start = datetime(year, 1, 1)
+                end = datetime(year + 1, 1, 1)
+                if group_by == GroupBy.year:
+                    group_by = GroupBy.month
+        elif group_by == GroupBy.year and not start and not end:
+            mode = TimeSeriesMode.all_time
+
+        # Build dynamic field filters from query parameters
+        field_filters = {}
+        field_labels = {}
+        
+        # Reserved parameters to exclude from field filters
+        reserved = [
+            'form_id', 'asset_uid', 'start', 'end', 'year', 'month', 
+            'tz', 'group_by', 'mode', 'token'
+        ]
+        
+        # Helper to get label from schema
+        def get_label(field_name):
+            if not form.form_schema: return field_name.split("/")[-1].title()
+            survey = form.form_schema.get("content", {}).get("survey", [])
+            for q in survey:
+                if q.get("name") == field_name or q.get("name") == field_name.split("/")[-1]:
+                    label = q.get("label", field_name)
+                    if isinstance(label, list) and len(label) > 0:
+                        label = label[0]
+                    elif isinstance(label, dict):
+                        # Try to get English or the first available language
+                        label = label.get("English", label.get("en", next(iter(label.values()), field_name)))
+                    return str(label)
+            return field_name.split("/")[-1].title()
+
+        # Capture all other query params as filters
+        for key, value in request.query_params.items():
+            if key in reserved or not value or value.lower() == "all":
+                continue
+            
+            # Map common shortcuts to full paths
+            target_key = key
+            if key == "province": target_key = "info/province"
+            elif key == "region": target_key = "info/region"
+            elif key == "district": target_key = "info/district"
+            
+            field_filters[target_key] = value
+            field_labels[key] = get_label(target_key)
+        
+        report_service = ReportService(db)
+        result = report_service.get_time_series_report(
+            form_id=form.id,
+            start=start,
+            end=end,
+            tz=tz,
+            group_by=group_by,
+            mode=mode,
+            filters={"field_filters": field_filters}
+        )
+        
+        if "error" in result:
+            raise HTTPException(status_code=404, detail=result["error"])
+            
+        result["field_labels"] = field_labels
+        return result
+    except Exception as e:
+        logger.error(f"Error generating time series report: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/api/reports/survey-summary/{form_id}")
 def get_survey_summary(
     form_id: int,
@@ -4028,7 +4145,12 @@ def get_form_submissions(
     if not check_form_access(current_user, form_id, db):
         raise HTTPException(status_code=403, detail="Access denied to this form")
     
-    query = db.query(Submission).filter(Submission.form_id == form_id)
+    # Limit to recent 30 days by default if no date filters are provided
+    thirty_days_ago = datetime.utcnow() - timedelta(days=30)
+    query = db.query(Submission).filter(
+        Submission.form_id == form_id,
+        Submission.created_at >= thirty_days_ago
+    )
     
     # Apply filters if provided (simplified - use proper JSON querying in production)
     submissions = query.order_by(desc(Submission.created_at)).offset(skip).limit(limit).all()

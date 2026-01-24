@@ -3,7 +3,9 @@ import logging
 import hashlib
 import json
 from typing import Any, Dict, List, Optional
-from datetime import datetime
+from datetime import datetime, timedelta
+import pandas as pd
+import pytz
 
 from sqlalchemy.orm import Session
 from sqlalchemy import func
@@ -368,27 +370,327 @@ class ReportService:
             "aggregate": aggregate,
         }
     
+    def get_time_series_report(
+        self,
+        form_id: int,
+        start: Optional[datetime] = None,
+        end: Optional[datetime] = None,
+        tz: str = "UTC",
+        group_by: str = "day",
+        mode: str = "range",
+        filters: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """
+        Generate a dedicated time series report for submissions.
+        
+        Handles timezone-aware boundaries and different grouping modes.
+        """
+        # 1. Resolve Timezone
+        try:
+            target_tz = pytz.timezone(tz)
+        except Exception:
+            target_tz = pytz.UTC
+            
+        now_tz = datetime.now(target_tz)
+        
+        # 2. Handle Mode & Date Range Logic
+        if mode == "last_30_days":
+            start = now_tz - timedelta(days=30)
+            end = now_tz
+            if group_by == "day": # Only override if default
+                group_by = "day"
+        elif mode == "last_24_hours":
+            start = now_tz - timedelta(hours=24)
+            end = now_tz
+            if group_by == "day": # Only override if default
+                group_by = "hour_2"
+        elif mode == "all_time":
+            start = None
+            end = None
+        else: # mode == "range"
+            # Use provided start/end, or defaults
+            if not start:
+                if group_by == "year":
+                    start = now_tz - timedelta(days=365*5) # 5 years
+                elif group_by == "month":
+                    start = now_tz - timedelta(days=365) # 1 year
+                else:
+                    start = now_tz - timedelta(days=30)
+            if not end:
+                end = now_tz
+        
+        # Ensure start/end are localized to target_tz for consistent internal logic
+        if start:
+            if start.tzinfo is None:
+                start = target_tz.localize(start)
+            else:
+                start = start.astimezone(target_tz)
+        
+        if end:
+            if end.tzinfo is None:
+                end = target_tz.localize(end)
+            else:
+                end = end.astimezone(target_tz)
+
+        # 3. Build Filter Context and Query
+        form = self.db.query(FormModel).filter(FormModel.id == form_id).first()
+        if not form:
+            return {"error": "Form not found"}
+            
+        # Get form field mappings for better geographic filtering
+        mapping = self.db.query(FormFieldMapping).filter(FormFieldMapping.form_id == form_id).first()
+        geo_fields = {
+            "dimension_1": mapping.location_field if mapping and mapping.location_field else "location_name",
+            "dimension_2": None,
+            "dimension_3": None
+        }
+            
+        # We use a context for other filters (locations, etc.) but handle dates separately
+        # to ensure exact datetime precision.
+        context = self._build_context(filters or {}, [form_id], geo_fields=geo_fields)
+        
+        query = self.db.query(Submission).filter(Submission.form_id == form_id)
+        
+        # Apply exact datetime filters (skipped if all_time)
+        if mode != "all_time":
+            if start:
+                utc_start = start.astimezone(pytz.UTC).replace(tzinfo=None)
+                query = query.filter(Submission.created_at >= utc_start)
+                
+            if end:
+                utc_end = end.astimezone(pytz.UTC).replace(tzinfo=None)
+                query = query.filter(Submission.created_at < utc_end)
+
+        # Apply other filters from context (except date filters which we handled)
+        context.date_from = None
+        context.date_to = None
+        query = context.apply_to_query(query)
+        
+        submissions = query.all()
+        # Apply complex in-memory filters
+        submissions = context.filter_submissions(submissions)
+        
+        # If all_time or missing start/end, compute from data
+        if not start and submissions:
+            dt_min = min(s.created_at for s in submissions).replace(tzinfo=pytz.UTC)
+            start = dt_min.astimezone(target_tz)
+        if not end and submissions:
+            dt_max = max(s.created_at for s in submissions).replace(tzinfo=pytz.UTC)
+            # Add a small buffer to end to include the last submission in the inclusive range
+            end = dt_max.astimezone(target_tz) + timedelta(seconds=1)
+            
+        # Final defaults if still None
+        if not start:
+            # If no submissions found, use a default range (last 30 days or last 24h depending on group_by)
+            if group_by == "hour_2":
+                start = now_tz - timedelta(hours=24)
+            else:
+                start = now_tz - timedelta(days=30)
+        
+        if not end:
+            end = now_tz
+            
+        # Ensure end > start to avoid issues with date_range
+        if end <= start:
+            if group_by == "year":
+                end = start + timedelta(days=366)
+            elif group_by == "month":
+                end = start + timedelta(days=32)
+            elif group_by == "hour_2":
+                end = start + timedelta(hours=2)
+            else:
+                end = start + timedelta(days=1)
+        
+        if not submissions and mode == "all_time":
+            return {
+                "success": True,
+                "form_id": form_id,
+                "form_name": form.title,
+                "date_from": start.isoformat() if start else None,
+                "date_to": end.isoformat() if end else None,
+                "group_by": group_by,
+                "total_submissions": 0,
+                "average_per_period": 0.0,
+                "trend": "neutral",
+                "data": [],
+                "insights": ["No data found for the selected period."]
+            }
+            
+        # 4. Process with Pandas for Timezone-aware Grouping
+        df_data = []
+        for s in submissions:
+            # Assume DB stores in UTC
+            dt_utc = s.created_at.replace(tzinfo=pytz.UTC)
+            dt_target = dt_utc.astimezone(target_tz)
+            df_data.append({
+                "created_at": dt_target,
+                "id": s.id
+            })
+            
+        if not df_data:
+            # Create an empty dataframe with the correct index type for resample
+            df = pd.DataFrame(columns=["id"], index=pd.DatetimeIndex([], name="created_at", tz=target_tz))
+        else:
+            df = pd.DataFrame(df_data)
+            df.set_index("created_at", inplace=True)
+        
+        # Determine Resample Frequency and Normalization
+        # We use Start-of-period frequencies to ensure alignment with start/end
+        freq_map = {
+            "year": "YS",
+            "month": "MS",
+            "day": "D",
+            "hour_2": "2h"
+        }
+        freq = freq_map.get(group_by, "D")
+        
+        # Normalize start/end for the range generation to ensure alignment with resample
+        # For 'day' and 'month' and 'year', we usually want to start from the beginning of the period.
+        if group_by in ["day", "month", "year"]:
+            range_start = start.replace(hour=0, minute=0, second=0, microsecond=0)
+            if group_by == "month":
+                range_start = range_start.replace(day=1)
+            elif group_by == "year":
+                range_start = range_start.replace(month=1, day=1)
+        elif group_by == "hour_2":
+            range_start = start.replace(minute=0, second=0, microsecond=0)
+            range_start = range_start.replace(hour=range_start.hour - (range_start.hour % 2))
+        else:
+            range_start = start
+
+        # Resample and Count
+        # Using 'origin' ensures the bins are aligned with our range_start
+        resampled = df.resample(freq, origin=range_start).count()
+        resampled.columns = ["count"]
+        
+        # Re-index to ensure the full range is covered
+        # Generate the full range using the normalized range_start
+        full_range = pd.date_range(start=range_start, end=end, freq=freq, tz=target_tz)
+        # Filter the range to only include periods that start strictly before the 'end' boundary.
+        # This ensures we don't have an empty trailing bucket if 'end' falls on a boundary.
+        full_range = full_range[full_range < end]
+        
+        resampled = resampled.reindex(full_range, fill_value=0)
+        
+        # Cumulative Count
+        resampled["cumulative"] = resampled["count"].cumsum()
+        
+        # Prepare Data Points
+        data_points = []
+        for timestamp, row in resampled.iterrows():
+            if group_by == "year":
+                label = timestamp.strftime("%Y")
+            elif group_by == "month":
+                label = timestamp.strftime("%b %Y")
+            elif group_by == "day":
+                label = timestamp.strftime("%Y-%m-%d")
+            elif group_by == "hour_2":
+                label = timestamp.strftime("%Y-%m-%d %H:%M")
+            else:
+                label = timestamp.isoformat()
+                
+            data_points.append({
+                "period": timestamp.isoformat(),
+                "label": label,
+                "count": int(row["count"]),
+                "cumulative": int(row["cumulative"])
+            })
+            
+        # 5. Compute Insights & Trend
+        total = len(submissions)
+        periods = len(resampled)
+        avg = total / periods if periods > 0 else 0
+        
+        trend = "neutral"
+        if len(resampled) >= 2:
+            last_val = resampled.iloc[-1]["count"]
+            prev_val = resampled.iloc[-2]["count"]
+            if last_val > prev_val:
+                trend = "up"
+            elif last_val < prev_val:
+                trend = "down"
+                
+        insights = []
+        if total > 0:
+            max_idx = resampled["count"].idxmax()
+            max_val = resampled.loc[max_idx, "count"]
+            insights.append(f"Peak activity: {max_val} submissions on {max_idx.strftime('%Y-%m-%d %H:%M') if group_by == 'hour_2' else max_idx.strftime('%Y-%m-%d')}.")
+            
+        return {
+            "success": True,
+            "form_id": form_id,
+            "form_name": form.title,
+            "date_from": start.isoformat() if start else None,
+            "date_to": end.isoformat() if end else None,
+            "group_by": group_by,
+            "total_submissions": total,
+            "average_per_period": round(avg, 2),
+            "trend": trend,
+            "data": data_points,
+            "insights": insights
+        }
+
     def _build_context(
         self,
         filters_request: Dict[str, Any],
-        form_ids: Optional[List[int]] = None
+        form_ids: Optional[List[int]] = None,
+        geo_fields: Optional[Dict[str, str]] = None
     ) -> FilterContext:
         """Build FilterContext from request dict."""
         locations = []
-        for loc_dict in filters_request.get("locations", []):
+        # Support both explicit 'locations' list and flat location fields
+        raw_locations = filters_request.get("locations", [])
+        for loc_dict in raw_locations:
             locations.append(LocationFilter(
                 dimension_1=loc_dict.get("dimension_1"),
                 dimension_2=loc_dict.get("dimension_2"),
                 dimension_3=loc_dict.get("dimension_3"),
             ))
         
+        # Determine field filters. Handle flat dict case.
+        field_filters_raw = filters_request.get("field_filters")
+        if field_filters_raw is None:
+            # If not explicitly provided, treat the dict itself as filters, 
+            # excluding standard metadata keys.
+            metadata_keys = [
+                "date_from", "date_to", "locations", "form_ids", 
+                "exclude_incomplete", "form_id", "asset_uid", 
+                "start", "end", "year", "month", "tz", "group_by", "mode"
+            ]
+            field_filters_raw = {k: v for k, v in filters_request.items() if k not in metadata_keys}
+        
+        field_filters = field_filters_raw.copy()
+
+        # Extra smarts: if province/region/district are in field_filters, 
+        # and we don't have locations yet, move them to locations.
+        if not locations:
+            loc_filter = {}
+            # Check for various province/region/district keys (including Kobo-style paths)
+            prov_field = "province" if "province" in field_filters else ("info/province" if "info/province" in field_filters else None)
+            reg_field = "region" if "region" in field_filters else ("info/region" if "info/region" in field_filters else None)
+            dist_field = "district" if "district" in field_filters else ("info/district" if "info/district" in field_filters else None)
+            
+            if prov_field:
+                loc_filter["dimension_1"] = field_filters.pop(prov_field)
+                if geo_fields: geo_fields["dimension_1"] = prov_field
+            if reg_field:
+                loc_filter["dimension_2"] = field_filters.pop(reg_field)
+                if geo_fields: geo_fields["dimension_2"] = reg_field
+            if dist_field:
+                loc_filter["dimension_3"] = field_filters.pop(dist_field)
+                if geo_fields: geo_fields["dimension_3"] = dist_field
+            
+            if loc_filter:
+                locations.append(LocationFilter(**loc_filter))
+
         return FilterContext(
             date_from=filters_request.get("date_from"),
             date_to=filters_request.get("date_to"),
             locations=locations,
             form_ids=form_ids or filters_request.get("form_ids", []),
-            field_filters=filters_request.get("field_filters", {}),
+            field_filters=field_filters,
             exclude_incomplete=filters_request.get("exclude_incomplete", False),
+            geo_fields=geo_fields
         )
     
     def _build_metadata(

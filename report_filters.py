@@ -150,6 +150,14 @@ class FilterContext:
             "exclude_incomplete": self.exclude_incomplete,
         }
     
+    def _get_jsonb_path_col(self, col: Any, path: str) -> Any:
+        """Helper to build a JSONB path expression from a slash-separated path."""
+        parts = path.replace(".", "/").split("/")
+        expr = col
+        for part in parts[:-1]:
+            expr = expr.op("->")(part)
+        return expr.op("->>")(parts[-1])
+
     def apply_to_query(self, query: Query) -> Query:
         """
         Apply filters to a SQLAlchemy query on Submission model.
@@ -172,7 +180,87 @@ class FilterContext:
             conditions.append(Submission.form_id.in_(self.form_ids))
         
         if self.exclude_incomplete:
+            # Use JSONB operator for performance if supported by DB
             conditions.append(Submission.cleaned_data.op('->')('_has_errors').astext.cast(bool) == False)
+        
+        # Optimize dimensions (Province, Region, District)
+        if self.locations:
+            location_conditions = []
+            for loc in self.locations:
+                if loc.is_empty():
+                    continue
+                
+                loc_parts = []
+                for dim_key, dim_val in [
+                    ("dimension_1", loc.dimension_1),
+                    ("dimension_2", loc.dimension_2),
+                    ("dimension_3", loc.dimension_3)
+                ]:
+                    if dim_val and str(dim_val).lower() != "all":
+                        field_name = self.geo_fields.get(dim_key)
+                        if not field_name:
+                            continue
+                            
+                        val = str(dim_val).lower().strip()
+                        val_code = val.replace(" ", "_")
+                        
+                        if field_name == "location_name":
+                            # Check both column and cleaned_data for dimension_1 if it's location_name
+                            loc_parts.append(
+                                or_(
+                                    func.lower(Submission.location_name) == val,
+                                    func.replace(func.lower(Submission.location_name), " ", "_") == val_code,
+                                    func.lower(Submission.cleaned_data.op("->>")("location_name")) == val,
+                                    func.replace(func.lower(Submission.cleaned_data.op("->>")("location_name")), " ", "_") == val_code
+                                )
+                            )
+                        else:
+                            # Handle nested JSONB paths
+                            target_col = self._get_jsonb_path_col(Submission.cleaned_data, field_name)
+                            loc_parts.append(
+                                or_(
+                                    func.lower(target_col) == val,
+                                    func.replace(func.lower(target_col), " ", "_") == val_code
+                                )
+                            )
+                
+                if loc_parts:
+                    location_conditions.append(and_(*loc_parts))
+            
+            if location_conditions:
+                conditions.append(or_(*location_conditions))
+
+        # Basic field filter optimization (supports nested fields)
+        if self.field_filters:
+            for field_name, filter_value in self.field_filters.items():
+                if filter_value is None or filter_value == "" or filter_value == [] or (isinstance(filter_value, str) and filter_value.lower() == "all"):
+                    continue
+                
+                # Soft-matching in SQL
+                target_col = self._get_jsonb_path_col(Submission.cleaned_data, field_name)
+                
+                if isinstance(filter_value, list):
+                    list_conditions = []
+                    for fv in filter_value:
+                        val = str(fv).lower().strip()
+                        val_code = val.replace(" ", "_")
+                        list_conditions.append(
+                            or_(
+                                func.lower(target_col) == val,
+                                func.replace(func.lower(target_col), " ", "_") == val_code
+                            )
+                        )
+                    if list_conditions:
+                        conditions.append(or_(*list_conditions))
+                else:
+                    val = str(filter_value).lower().strip()
+                    val_code = val.replace(" ", "_")
+                    conditions.append(
+                        or_(
+                            func.lower(target_col) == val,
+                            func.replace(func.lower(target_col), " ", "_") == val_code
+                        )
+                    )
         
         if conditions:
             query = query.filter(and_(*conditions))
@@ -223,11 +311,26 @@ class FilterContext:
                 if filter_value is None or filter_value == "" or filter_value == [] or (isinstance(filter_value, str) and filter_value.lower() == "all"):
                     continue
                 
+                # Normalize values for comparison: lowercase, strip, and replace spaces with underscores for code-matching
+                def normalize(v: Any) -> str:
+                    return str(v).lower().strip().replace(" ", "_")
+                
+                def soft_match(v1: Any, v2: Any) -> bool:
+                    s1 = str(v1).lower().strip()
+                    s2 = str(v2).lower().strip()
+                    # Match exact, or underscored (code-like)
+                    return s1 == s2 or s1.replace(" ", "_") == s2 or s1 == s2.replace(" ", "_")
+
                 if isinstance(filter_value, list):
-                    if submission_value not in filter_value:
+                    match_found = False
+                    for fv in filter_value:
+                        if soft_match(submission_value, fv):
+                            match_found = True
+                            break
+                    if not match_found:
                         return False
                 else:
-                    if str(submission_value) != str(filter_value):
+                    if not soft_match(submission_value, filter_value):
                         return False
         
         return True
@@ -237,25 +340,31 @@ class FilterContext:
         if location.is_empty():
             return True
         
+        def soft_match(v1: Any, v2: Any) -> bool:
+            if v1 is None or v2 is None: return v1 == v2
+            s1 = str(v1).lower().strip()
+            s2 = str(v2).lower().strip()
+            return s1 == s2 or s1.replace(" ", "_") == s2 or s1 == s2.replace(" ", "_")
+        
         if location.dimension_1 and str(location.dimension_1).lower() != "all":
             field_name = self.geo_fields.get("dimension_1", "location_name")
             if field_name:
                 value = get_nested_field_value(payload, field_name)
-                if str(value) != str(location.dimension_1):
+                if not soft_match(value, location.dimension_1):
                     return False
         
         if location.dimension_2 and str(location.dimension_2).lower() != "all":
             field_name = self.geo_fields.get("dimension_2")
             if field_name:
                 value = get_nested_field_value(payload, field_name)
-                if str(value) != str(location.dimension_2):
+                if not soft_match(value, location.dimension_2):
                     return False
         
         if location.dimension_3 and str(location.dimension_3).lower() != "all":
             field_name = self.geo_fields.get("dimension_3")
             if field_name:
                 value = get_nested_field_value(payload, field_name)
-                if str(value) != str(location.dimension_3):
+                if not soft_match(value, location.dimension_3):
                     return False
         
         return True
