@@ -210,41 +210,75 @@ class ETLPipeline:
         return "60+"
 
     def extract_location(self, submission_data: dict[str, Any]) -> tuple[Optional[float], Optional[float], Optional[str]]:
-        """Extract location data from submission."""
+        """
+        Extract location data from submission.
+        Prioritizes automatic metadata 'start-geopoint' field which contains:
+        "lat lng altitude accuracy" (space-separated values).
+        """
         lat = None
         lng = None
         location_name = None
 
-        # Common location field names in Kobo
-        location_fields = ["_geolocation", "geolocation", "location", "coordinates"]
-        for field in location_fields:
-            if field in submission_data:
-                loc = submission_data[field]
-                if isinstance(loc, list) and len(loc) >= 2:
-                    try:
-                        if loc[0] is not None and loc[1] is not None:
-                            lat, lng = float(loc[0]), float(loc[1])
-                    except (ValueError, TypeError):
-                        pass
-                elif isinstance(loc, dict):
-                    lat = loc.get("latitude") or loc.get("lat")
-                    lng = loc.get("longitude") or loc.get("lng") or loc.get("lon")
-                    location_name = loc.get("name") or loc.get("address")
+        # Priority 1: Check for automatic metadata 'start-geopoint' field
+        # Format: "34.4751192 69.129964 1793.0 17.615" (lat, lng, altitude, accuracy)
+        if "start-geopoint" in submission_data:
+            geopoint_str = submission_data["start-geopoint"]
+            if isinstance(geopoint_str, str) and geopoint_str.strip():
+                try:
+                    parts = geopoint_str.strip().split()
+                    if len(parts) >= 2:
+                        lat = float(parts[0])
+                        lng = float(parts[1])
+                        # Altitude and accuracy (parts[2] and parts[3]) are available but not used here
+                        logger.debug(f"Extracted location from start-geopoint: {lat}, {lng}")
+                except (ValueError, TypeError, IndexError) as e:
+                    logger.warning(f"Failed to parse start-geopoint '{geopoint_str}': {e}")
 
-        # Check for separate lat/lng fields
+        # Priority 2: Fallback to common location field names in Kobo (for backward compatibility)
+        if lat is None or lng is None:
+            location_fields = ["_geolocation", "geolocation", "location", "coordinates"]
+            for field in location_fields:
+                if field in submission_data:
+                    loc = submission_data[field]
+                    if isinstance(loc, list) and len(loc) >= 2:
+                        try:
+                            if loc[0] is not None and loc[1] is not None:
+                                if lat is None:
+                                    lat = float(loc[0])
+                                if lng is None:
+                                    lng = float(loc[1])
+                        except (ValueError, TypeError):
+                            pass
+                    elif isinstance(loc, dict):
+                        if lat is None:
+                            lat = loc.get("latitude") or loc.get("lat")
+                        if lng is None:
+                            lng = loc.get("longitude") or loc.get("lng") or loc.get("lon")
+                        if not location_name:
+                            location_name = loc.get("name") or loc.get("address")
+
+        # Priority 3: Check for separate lat/lng fields (for backward compatibility)
         if lat is None:
             for key in submission_data.keys():
+                # Skip start-geopoint as we already processed it
+                if key == "start-geopoint":
+                    continue
                 if "lat" in key.lower() and submission_data[key]:
                     try:
                         lat = float(submission_data[key])
+                        break
                     except (ValueError, TypeError):
                         pass
         if lng is None:
             for key in submission_data.keys():
+                # Skip start-geopoint as we already processed it
+                if key == "start-geopoint":
+                    continue
                 if "lng" in key.lower() or "lon" in key.lower():
                     if submission_data[key]:
                         try:
                             lng = float(submission_data[key])
+                            break
                         except (ValueError, TypeError):
                             pass
 
