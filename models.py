@@ -168,7 +168,8 @@ class Submission(Base):
     submitted_at = Column(DateTime, nullable=True)
     location_lat = Column(Float, nullable=True)
     location_lng = Column(Float, nullable=True)
-    location_name = Column(String(500), nullable=True)
+    location_name = Column(String(500), nullable=True)  # GPS-resolved location from reverse geocoding
+    # Province/District from form data (user input)
     province = Column(String(255), nullable=True, index=True)
     district = Column(String(255), nullable=True, index=True)
     processed_at = Column(DateTime, default=datetime.utcnow, nullable=False)

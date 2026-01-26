@@ -571,9 +571,25 @@ def list_users(
     current_user: User = Depends(require_role("admin")),
     db: Session = Depends(get_db),
 ):
-    """List all users (admin only)."""
+    """List all users (admin only).
+    
+    Returns users with helper flags:
+    - can_delete: False for admin users (protected)
+    - can_assign_forms: False for admin users (they have access to all forms)
+    """
     users = db.query(User).offset(skip).limit(limit).all()
-    return users
+    
+    # Add helper flags for frontend
+    result = []
+    for user in users:
+        user_dict = {
+            **{c.name: getattr(user, c.name) for c in user.__table__.columns if c.name != "hashed_password"},
+            "can_delete": user.role != "admin",
+            "can_assign_forms": user.role != "admin",
+        }
+        result.append(UserResponse(**user_dict))
+    
+    return result
 
 
 @app.get("/api/users/{user_id}", response_model=UserResponse)
@@ -582,11 +598,23 @@ def get_user(
     current_user: User = Depends(require_role("admin")),
     db: Session = Depends(get_db),
 ):
-    """Get a specific user (admin only)."""
+    """Get a specific user (admin only).
+    
+    Returns user with helper flags:
+    - can_delete: False for admin users (protected)
+    - can_assign_forms: False for admin users (they have access to all forms)
+    """
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    return user
+    
+    # Add helper flags for frontend
+    user_dict = {
+        **{c.name: getattr(user, c.name) for c in user.__table__.columns if c.name != "hashed_password"},
+        "can_delete": user.role != "admin",
+        "can_assign_forms": user.role != "admin",
+    }
+    return UserResponse(**user_dict)
 
 
 @app.put("/api/users/{user_id}", response_model=UserResponse)
@@ -625,11 +653,9 @@ def delete_user(
     if user.id == current_user.id:
         raise HTTPException(status_code=400, detail="Cannot delete your own account")
     
-    # Prevent deleting the last admin
+    # Prevent deleting admin users - they are protected
     if user.role == "admin":
-        admin_count = db.query(User).filter(User.role == "admin").count()
-        if admin_count <= 1:
-            raise HTTPException(status_code=400, detail="Cannot delete the last admin user")
+        raise HTTPException(status_code=400, detail="Cannot delete admin users. Admin accounts are protected.")
     
     db.delete(user)
     db.commit()
@@ -706,6 +732,10 @@ def assign_form_to_user(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     
+    # Admin users have access to all forms by default - no need to assign
+    if user.role == "admin":
+        raise HTTPException(status_code=400, detail="Admin users have access to all forms by default. Form assignment is not needed.")
+    
     form = db.query(FormModel).filter(FormModel.id == form_id).first()
     if not form:
         raise HTTPException(status_code=404, detail="Form not found")
@@ -744,6 +774,10 @@ def bulk_assign_forms(
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
+    
+    # Admin users have access to all forms by default - no need to assign
+    if user.role == "admin":
+        raise HTTPException(status_code=400, detail="Admin users have access to all forms by default. Form assignment is not needed.")
     
     assigned_count = 0
     skipped_count = 0
@@ -4243,8 +4277,9 @@ def get_form_table(
     rows = []
     
     if submissions:
-        seen_fields = set()
-        field_types = {}
+        # Pre-define auto-detected columns to ensure they always appear
+        seen_fields = {"province", "district"}
+        field_types = {"province": "text", "district": "text"}
         
         for submission in submissions:
             payload = submission.cleaned_data or submission.submission_data
@@ -4269,6 +4304,8 @@ def get_form_table(
                     
                     field_types[key] = field_type
         
+        # Sort fields but keep province and district at a consistent place if desired
+        # For now, just sorting all including auto-detected ones
         for field_name in sorted(seen_fields):
             field_type = field_types.get(field_name, "text")
             label = field_name.replace("_", " ").replace("/", " ").title()
@@ -4297,12 +4334,18 @@ def get_form_table(
         
         for submission in submissions:
             payload = submission.cleaned_data or submission.submission_data
-            if not payload or not isinstance(payload, dict):
-                continue
+            if not isinstance(payload, dict):
+                payload = {}
             
             row = {}
             for field_name in seen_fields:
-                value = payload.get(field_name)
+                # Prioritize database columns for auto-detected fields
+                if field_name == "province":
+                    value = submission.province or payload.get("province")
+                elif field_name == "district":
+                    value = submission.district or payload.get("district")
+                else:
+                    value = payload.get(field_name)
                 
                 if value is None:
                     row[field_name] = None

@@ -15,12 +15,25 @@ from models import Base
 
 logger = logging.getLogger(__name__)
 
-# Create SQLite engine
-engine = create_engine(
-    settings.DATABASE_URL,
-    connect_args={"check_same_thread": False} if "sqlite" in settings.DATABASE_URL else {},
-    echo=False,  # Set to True for SQL query logging (debug only)
-)
+# Create database engine with appropriate settings for SQLite vs MySQL
+if "sqlite" in settings.DATABASE_URL:
+    # SQLite configuration (local development)
+    engine = create_engine(
+        settings.DATABASE_URL,
+        connect_args={"check_same_thread": False},
+        echo=False,
+    )
+else:
+    # MySQL/PostgreSQL configuration (production)
+    engine = create_engine(
+        settings.DATABASE_URL,
+        pool_size=5,           # Number of persistent connections in the pool
+        max_overflow=10,       # Extra connections when pool is exhausted
+        pool_timeout=30,       # Seconds to wait for available connection
+        pool_recycle=1800,     # Recycle connections every 30 min (prevents MySQL timeout)
+        pool_pre_ping=True,    # Test connections before use (handles stale connections)
+        echo=False,
+    )
 
 # Create session factory
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

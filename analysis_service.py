@@ -72,7 +72,13 @@ class AnalysisService:
             query = query.filter(Submission.created_at <= date_to)
         
         if location and location.lower() != 'all':
-            query = query.filter(Submission.location_name == location)
+            query = query.filter(
+                or_(
+                    Submission.location_name == location,
+                    Submission.province == location,
+                    Submission.district == location
+                )
+            )
             
         if enumerator and enumerator.lower() != 'all':
             enum_attr = self._get_json_field("_submitted_by")

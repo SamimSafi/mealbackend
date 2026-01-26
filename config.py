@@ -50,7 +50,7 @@ class Settings(BaseSettings):
     # JWT
     SECRET_KEY: str = "4b9e5d9db5c14a5a8d0e4ea2c2f4d9f0e6d8a7c3c5f1a9b2c4d6e8f0a1b3c5d7e9f2a4b6c8d0e2f4a6c8e0f1a3b5c7d9e1f3a5c7e9f1d3c5b7a9"
     ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
 
     # KoboToolbox
     KOBO_API_URL: str = "https://kf.kobotoolbox.org/api/v2"

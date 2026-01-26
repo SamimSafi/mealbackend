@@ -110,8 +110,8 @@ class FilterContext:
         self.field_filters = field_filters or {}
         self.exclude_incomplete = exclude_incomplete
         self.geo_fields = geo_fields or {
-            "dimension_1": "location_name",  # Default to location_name field
-            "dimension_2": None,
+            "dimension_1": "province",  # Priority: province column
+            "dimension_2": "district",  # Priority: district column
             "dimension_3": None,
         }
     
@@ -204,7 +204,26 @@ class FilterContext:
                         val = str(dim_val).lower().strip()
                         val_code = val.replace(" ", "_")
                         
-                        if field_name == "location_name":
+                        if field_name == "province":
+                            loc_parts.append(
+                                or_(
+                                    func.lower(Submission.province) == val,
+                                    func.replace(func.lower(Submission.province), " ", "_") == val_code,
+                                    func.lower(Submission.location_name) == val,
+                                    func.replace(func.lower(Submission.location_name), " ", "_") == val_code,
+                                    func.lower(Submission.cleaned_data.op("->>")("province")) == val,
+                                    func.lower(Submission.cleaned_data.op("->>")("location_name")) == val
+                                )
+                            )
+                        elif field_name == "district":
+                            loc_parts.append(
+                                or_(
+                                    func.lower(Submission.district) == val,
+                                    func.replace(func.lower(Submission.district), " ", "_") == val_code,
+                                    func.lower(Submission.cleaned_data.op("->>")("district")) == val
+                                )
+                            )
+                        elif field_name == "location_name":
                             # Check both column and cleaned_data for dimension_1 if it's location_name
                             loc_parts.append(
                                 or_(
@@ -298,7 +317,7 @@ class FilterContext:
         if self.locations:
             location_match = False
             for loc in self.locations:
-                if self._location_matches(payload, loc):
+                if self._location_matches(submission, loc):
                     location_match = True
                     break
             if not location_match:
@@ -335,10 +354,12 @@ class FilterContext:
         
         return True
     
-    def _location_matches(self, payload: Dict[str, Any], location: LocationFilter) -> bool:
+    def _location_matches(self, submission: Submission, location: LocationFilter) -> bool:
         """Check if submission's location matches the filter."""
         if location.is_empty():
             return True
+        
+        payload = submission.cleaned_data or submission.submission_data or {}
         
         def soft_match(v1: Any, v2: Any) -> bool:
             if v1 is None or v2 is None: return v1 == v2
@@ -347,15 +368,38 @@ class FilterContext:
             return s1 == s2 or s1.replace(" ", "_") == s2 or s1 == s2.replace(" ", "_")
         
         if location.dimension_1 and str(location.dimension_1).lower() != "all":
-            field_name = self.geo_fields.get("dimension_1", "location_name")
-            if field_name:
+            field_name = self.geo_fields.get("dimension_1", "province")
+            
+            # Check column first
+            matched = False
+            if field_name == "province":
+                if soft_match(submission.province, location.dimension_1) or soft_match(submission.location_name, location.dimension_1):
+                    matched = True
+            elif field_name == "location_name":
+                if soft_match(submission.location_name, location.dimension_1):
+                    matched = True
+            
+            # Then check payload
+            if not matched:
                 value = get_nested_field_value(payload, field_name)
                 if not soft_match(value, location.dimension_1):
-                    return False
+                    # Also fallback to location_name in payload if field_name was province
+                    if field_name == "province":
+                        loc_val = get_nested_field_value(payload, "location_name")
+                        if not soft_match(loc_val, location.dimension_1):
+                            return False
+                    else:
+                        return False
         
         if location.dimension_2 and str(location.dimension_2).lower() != "all":
-            field_name = self.geo_fields.get("dimension_2")
-            if field_name:
+            field_name = self.geo_fields.get("dimension_2", "district")
+            
+            matched = False
+            if field_name == "district":
+                if soft_match(submission.district, location.dimension_2):
+                    matched = True
+            
+            if not matched:
                 value = get_nested_field_value(payload, field_name)
                 if not soft_match(value, location.dimension_2):
                     return False

@@ -52,6 +52,9 @@ class UserResponse(UserBase):
     is_active: bool
     created_at: datetime
     updated_at: datetime
+    # Frontend helper flags
+    can_delete: Optional[bool] = True  # False for admin users
+    can_assign_forms: Optional[bool] = True  # False for admin users (they have all forms)
 
     class Config:
         from_attributes = True
@@ -148,6 +151,7 @@ class SubmissionResponse(SubmissionBase):
     location_lat: Optional[float] = None
     location_lng: Optional[float] = None
     location_name: Optional[str] = None
+    # Province/District from form data (user input)
     province: Optional[str] = None
     district: Optional[str] = None
     created_at: datetime

@@ -22,6 +22,7 @@ class ETLPipeline:
         """Initialize ETL pipeline."""
         self.db = db
         self.kobo_client = kobo_client or KoboClient()
+        self.geocoding_cache = {}  # Cache for reverse geocoding results: {(lat, lng) -> (province, district)}
 
     def build_choice_mapping(self, form: Form) -> dict[str, dict[str, str]]:
         """
@@ -249,32 +250,149 @@ class ETLPipeline:
 
         return lat, lng, location_name
 
-    def reverse_geocode(self, lat: float, lng: float) -> tuple[Optional[str], Optional[str]]:
+    def extract_province_district_from_data(self, submission_data: dict[str, Any], cleaned_data: dict[str, Any]) -> tuple[Optional[str], Optional[str]]:
+        """
+        Extract province and district from form data (user input).
+        Searches both raw submission data and cleaned data for common field patterns.
+        """
+        province = None
+        district = None
+        
+        # Common field names for province (check both raw and cleaned data)
+        province_fields = [
+            "province", "Province", "info/province", "location/province",
+            "state", "region", "admin1", "adm1", "governorate",
+            "e5w_province", "sls_province", "beneficiary/province"
+        ]
+        
+        # Common field names for district
+        district_fields = [
+            "district", "District", "info/district", "location/district",
+            "county", "municipality", "admin2", "adm2", "city", "town",
+            "e5w_district", "sls_district", "beneficiary/district"
+        ]
+        
+        # Search for province in both data sources
+        for field in province_fields:
+            # Check cleaned_data first (has flattened keys)
+            if field in cleaned_data and cleaned_data[field]:
+                province = str(cleaned_data[field]).strip()
+                break
+            # Check raw submission data
+            if field in submission_data and submission_data[field]:
+                province = str(submission_data[field]).strip()
+                break
+            # Check nested paths in raw data (e.g., "info/province")
+            if "/" in field:
+                parts = field.split("/")
+                value = submission_data
+                for part in parts:
+                    if isinstance(value, dict) and part in value:
+                        value = value[part]
+                    else:
+                        value = None
+                        break
+                if value:
+                    province = str(value).strip()
+                    break
+        
+        # Search for district in both data sources
+        for field in district_fields:
+            if field in cleaned_data and cleaned_data[field]:
+                district = str(cleaned_data[field]).strip()
+                break
+            if field in submission_data and submission_data[field]:
+                district = str(submission_data[field]).strip()
+                break
+            if "/" in field:
+                parts = field.split("/")
+                value = submission_data
+                for part in parts:
+                    if isinstance(value, dict) and part in value:
+                        value = value[part]
+                    else:
+                        value = None
+                        break
+                if value:
+                    district = str(value).strip()
+                    break
+        
+        return province, district
+
+    def reverse_geocode(self, lat: float, lng: float, max_retries: int = 3) -> tuple[Optional[str], Optional[str]]:
         """
         Resolve province and district from coordinates using Nominatim.
+        Includes in-memory caching and retry logic.
         """
         if lat is None or lng is None:
             return None, None
 
+        # Check cache first
         try:
-            # Simple rate limiting: wait 1 second between calls if needed
-            # For better performance, an in-memory cache should be used
-            url = f"https://nominatim.openstreetmap.org/reverse?lat={lat}&lon={lng}&format=jsonv2&addressdetails=1"
-            headers = {
-                'User-Agent': 'MealSystemDashboard/1.0'
-            }
-            response = requests.get(url, headers=headers, timeout=5)
-            if response.status_code == 200:
-                data = response.json()
-                address = data.get('address', {})
+            cache_key = (round(float(lat), 4), round(float(lng), 4))
+            if cache_key in self.geocoding_cache:
+                return self.geocoding_cache[cache_key]
+        except (ValueError, TypeError):
+            return None, None
+
+        # Retry loop for network issues
+        for attempt in range(max_retries):
+            try:
+                # Rate limiting: Nominatim requires 1 second between requests
+                time.sleep(1.5 if attempt > 0 else 1)
                 
-                # Afghanistan/Generic administrative level mapping
-                province = address.get('state') or address.get('province') or address.get('region')
-                district = address.get('county') or address.get('district') or address.get('city') or address.get('town')
+                url = f"https://nominatim.openstreetmap.org/reverse?lat={lat}&lon={lng}&format=jsonv2&addressdetails=1"
+                headers = {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    'Accept': 'application/json',
+                    'Accept-Language': 'en-US,en;q=0.9'
+                }
+                response = requests.get(url, headers=headers, timeout=15)
                 
-                return province, district
-        except Exception as e:
-            logger.warning(f"Reverse geocoding failed for {lat}, {lng}: {e}")
+                if response.status_code == 200:
+                    data = response.json()
+                    address = data.get('address', {})
+                    
+                    # Extract the most specific location name available
+                    # Priority: village > town > suburb > neighbourhood > city
+                    specific_location = (
+                        address.get('village') or
+                        address.get('town') or
+                        address.get('suburb') or
+                        address.get('neighbourhood') or
+                        address.get('city')
+                    )
+                    
+                    # Province/State level
+                    province = address.get('state') or address.get('province') or address.get('region')
+                    
+                    # Build simple location string: "Specific Location, Province"
+                    # Skip district/county to avoid redundancy
+                    if specific_location and province:
+                        detailed_location = f"{specific_location}, {province}"
+                    elif specific_location:
+                        detailed_location = specific_location
+                    elif province:
+                        detailed_location = province
+                    else:
+                        detailed_location = None
+                    
+                    # Log the result
+                    logger.info(f"GPS {lat}, {lng} -> {detailed_location}")
+                    
+                    # Update cache
+                    self.geocoding_cache[cache_key] = (province, detailed_location)
+                    return province, detailed_location
+                else:
+                    logger.warning(f"Reverse geocoding returned {response.status_code} for {lat}, {lng}")
+                    
+            except requests.exceptions.Timeout:
+                logger.warning(f"Reverse geocoding timeout (attempt {attempt + 1}/{max_retries}) for {lat}, {lng}")
+                if attempt < max_retries - 1:
+                    continue  # Retry
+            except Exception as e:
+                logger.warning(f"Reverse geocoding failed for {lat}, {lng}: {e}")
+                break  # Don't retry on other errors
             
         return None, None
 
@@ -296,6 +414,20 @@ class ETLPipeline:
             if not kobo_form:
                 raise ValueError(f"Form {kobo_form_id} not found in Kobo")
 
+            # Only sync actual survey forms, skip question library items, blocks, templates
+            asset_type = kobo_form.get("asset_type", "survey")
+            if asset_type != "survey":
+                raise ValueError(f"Asset {kobo_form_id} is not a survey (type: {asset_type}). Only survey forms can be synced.")
+
+            # Extract sector from settings (Kobo stores it as settings.sector.label or .value)
+            settings = kobo_form.get("settings", {})
+            sector_info = settings.get("sector", {})
+            sector = None
+            if isinstance(sector_info, dict):
+                sector = sector_info.get("label") or sector_info.get("value")
+            elif isinstance(sector_info, str):
+                sector = sector_info
+
             if not form:
                 # KoboToolbox API v2 uses 'name' for title
                 form = Form(
@@ -303,6 +435,7 @@ class ETLPipeline:
                     title=kobo_form.get("name") or kobo_form.get("title") or kobo_form_id,
                     description=kobo_form.get("settings", {}).get("description", "") or kobo_form.get("description", ""),
                     form_schema=kobo_form,
+                    category=sector,  # Store sector as category
                 )
                 self.db.add(form)
                 self.db.flush()
@@ -310,6 +443,7 @@ class ETLPipeline:
                 form.title = kobo_form.get("name") or kobo_form.get("title") or form.title
                 form.description = kobo_form.get("settings", {}).get("description", "") or kobo_form.get("description", form.description)
                 form.form_schema = kobo_form
+                form.category = sector  # Update sector/category
                 form.last_synced_at = datetime.utcnow()
 
             sync_log.form_id = form.id
@@ -360,33 +494,39 @@ class ETLPipeline:
                 cleaned_data = self.clean_submission_data(kobo_submission, form=form)
                 lat, lng, loc_name = self.extract_location(kobo_submission)
                 
-                # Resolve province and district from data or reverse geocoding
-                province = None
-                district = None
+                # 1. Extract province/district from FORM DATA (user input)
+                province, district = self.extract_province_district_from_data(kobo_submission, cleaned_data)
                 
-                # Try to find in cleaned data first
-                for key, val in cleaned_data.items():
-                    if not province and "province" in key.lower() and val:
-                        province = str(val)
-                    if not district and "district" in key.lower() and val:
-                        district = str(val)
+                # Store form-based values in cleaned_data
+                if province:
+                    cleaned_data["province"] = province
+                if district:
+                    cleaned_data["district"] = district
                 
-                # If not found but we have coordinates, reverse geocode
-                if (not province or not district) and lat is not None and lng is not None:
-                    res_province, res_district = self.reverse_geocode(lat, lng)
-                    if not province: province = res_province
-                    if not district: district = res_district
+                # 2. Resolve location_name from GPS coordinates (reverse geocoding)
+                if lat is not None and lng is not None:
+                    gps_province, gps_detailed_location = self.reverse_geocode(lat, lng)
                     
-                    # Store resolved values in cleaned_data too
-                    if res_province: cleaned_data["resolved_province"] = res_province
-                    if res_district: cleaned_data["resolved_district"] = res_district
+                    # Use detailed GPS location directly as location_name
+                    if gps_detailed_location:
+                        loc_name = gps_detailed_location
+                    elif gps_province:
+                        loc_name = gps_province
+                    
+                    # Store GPS-resolved values in cleaned_data for reference
+                    if gps_province:
+                        cleaned_data["gps_resolved_province"] = gps_province
+                    if gps_detailed_location:
+                        cleaned_data["gps_resolved_location"] = gps_detailed_location
                 
-                # If location_name is still None but we have province/district, set it
-                if not loc_name and (province or district):
+                # Fallback: if no GPS data, use form data for location_name
+                if not loc_name:
                     if province and district:
-                        loc_name = f"{province}, {district}"
-                    else:
-                        loc_name = province or district
+                        loc_name = f"{district}, {province}"
+                    elif province:
+                        loc_name = province
+                    elif district:
+                        loc_name = district
                 
                 submitted_at = None
                 if "_submission_time" in kobo_submission:
@@ -566,11 +706,20 @@ class ETLPipeline:
         return indicator
 
     def sync_all_forms(self, sync_type: str = "incremental") -> list[SyncLog]:
-        """Sync all forms from Kobo."""
+        """Sync all forms from Kobo.
+        
+        Only syncs 'survey' type assets (skips question library items, blocks, templates).
+        """
         forms = self.kobo_client.get_forms()
         sync_logs = []
 
         for kobo_form in forms:
+            # Only sync actual survey forms, skip question library items, blocks, templates
+            asset_type = kobo_form.get("asset_type", "survey")
+            if asset_type != "survey":
+                logger.info(f"Skipping non-survey asset: {kobo_form.get('uid')} (type: {asset_type})")
+                continue
+            
             # KoboToolbox API v2 uses 'uid' for form identifier
             form_id = kobo_form.get("uid") or kobo_form.get("formid") or kobo_form.get("id")
             if form_id:
