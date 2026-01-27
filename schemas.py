@@ -155,6 +155,8 @@ class SubmissionResponse(SubmissionBase):
     province: Optional[str] = None
     district: Optional[str] = None
     created_at: datetime
+    # Enumerator from form data: _submitted_by, info/enumerator_name, or info/enumerator_id
+    enumerator: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -292,6 +294,27 @@ class SyncLogResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class SyncProgressResponse(BaseModel):
+    """Sync progress response schema for real-time updates."""
+
+    sync_id: int
+    status: str  # "running", "success", "error", "partial"
+    current_form_index: int
+    total_forms: int
+    current_form_id: Optional[int] = None
+    current_form_title: Optional[str] = None
+    current_submission_index: int
+    total_submissions: int
+    progress_percentage: float  # 0-100
+    records_added: int
+    records_updated: int
+    records_processed: int
+    started_at: Optional[str] = None  # ISO format
+    completed_at: Optional[str] = None  # ISO format
+    error_message: Optional[str] = None
+    message: Optional[str] = None  # Human-readable status message
 
 
 # Webhook Schemas

@@ -209,78 +209,207 @@ class ETLPipeline:
             return "45-59"
         return "60+"
 
+    def _parse_geopoint_string(self, s: str) -> tuple[Optional[float], Optional[float]]:
+        """Parse 'lat lng [alt] [acc]' string (same format as start-geopoint and manual geopoint). Returns (lat, lng) or (None, None)."""
+        if not s or not isinstance(s, str) or not s.strip():
+            return None, None
+        try:
+            parts = s.strip().split()
+            if len(parts) >= 2:
+                return float(parts[0]), float(parts[1])
+        except (ValueError, TypeError, IndexError):
+            pass
+        return None, None
+
+    def _get_by_path(self, d: dict[str, Any], path: str) -> Any:
+        """Get value by key or nested path (e.g. 'info/gps_location' or 'gps_location')."""
+        if not d or not isinstance(d, dict):
+            return None
+        if path in d:
+            return d[path]
+        parts = path.split("/")
+        v = d
+        for p in parts:
+            v = v.get(p) if isinstance(v, dict) else None
+            if v is None:
+                return None
+        return v
+
+    def _get_effective_submission_payload(self, submission_data: Optional[dict]) -> dict:
+        """Use root submission_data; if Kobo wraps payload in 'body', merge body so we can find start-geopoint and geopoint fields."""
+        if not submission_data or not isinstance(submission_data, dict):
+            return {}
+        body = submission_data.get("body")
+        if isinstance(body, dict):
+            return {**body, **submission_data}
+        return submission_data
+
+    def _find_value_by_key(self, d: Any, key: str) -> Any:
+        """Recursively find first value for dict key in nested dicts/lists. For start-geopoint when nested."""
+        if not isinstance(d, dict):
+            return None
+        if key in d and d[key] is not None:
+            return d[key]
+        for v in d.values():
+            if isinstance(v, dict):
+                found = self._find_value_by_key(v, key)
+                if found is not None:
+                    return found
+            elif isinstance(v, list):
+                for item in v:
+                    if isinstance(item, dict):
+                        found = self._find_value_by_key(item, key)
+                        if found is not None:
+                            return found
+        return None
+
+    def _walk_leaves(self, d: Any, prefix: str = "") -> Any:
+        """Yield (last_segment, value) for leaf values in nested dicts. last_segment is the last part of the path (e.g. 'gps_location')."""
+        if not isinstance(d, dict):
+            return
+        for k, v in d.items():
+            seg = k.split("/")[-1] if "/" in k else k
+            if isinstance(v, dict):
+                has_lat = v.get("lat") is not None or v.get("latitude") is not None
+                has_lng = v.get("lng") is not None or v.get("longitude") is not None or v.get("lon") is not None
+                if has_lat and has_lng:
+                    yield seg, v
+                else:
+                    yield from self._walk_leaves(v, f"{prefix}/{k}" if prefix else k)
+            elif isinstance(v, list):
+                for i, x in enumerate(v):
+                    if isinstance(x, dict):
+                        yield from self._walk_leaves(x, f"{prefix}/{k}[{i}]" if prefix else f"{k}[{i}]")
+            else:
+                yield seg, v
+
     def extract_location(self, submission_data: dict[str, Any]) -> tuple[Optional[float], Optional[float], Optional[str]]:
         """
         Extract location data from submission.
-        Prioritizes automatic metadata 'start-geopoint' field which contains:
-        "lat lng altitude accuracy" (space-separated values).
+        - Priority 1: automatic metadata start-geopoint / _start_geopoint / start_geopoint (device GPS)
+        - Priority 1b: manual geopoint fields (gps_location, geopoint, gps): string "lat lng [alt] [acc]", list [lat,lng], or dict {lat,lng}
+        - Priority 1c: recursive scan for any nested key ending in gps_location, geopoint, gps
+        - Priority 2: _geolocation, geolocation, location, coordinates (list or dict)
+        - Priority 3: separate lat/lng keys
+        Uses effective payload (merged with body if Kobo wraps in 'body').
         """
         lat = None
         lng = None
         location_name = None
+        effective = self._get_effective_submission_payload(submission_data)
 
-        # Priority 1: Check for automatic metadata 'start-geopoint' field
-        # Format: "34.4751192 69.129964 1793.0 17.615" (lat, lng, altitude, accuracy)
-        if "start-geopoint" in submission_data:
-            geopoint_str = submission_data["start-geopoint"]
-            if isinstance(geopoint_str, str) and geopoint_str.strip():
+        def parse_val(val: Any) -> tuple[Optional[float], Optional[float]]:
+            la, ln = None, None
+            if isinstance(val, str) and val.strip():
+                la, ln = self._parse_geopoint_string(val)
+            elif isinstance(val, list) and len(val) >= 2:
                 try:
-                    parts = geopoint_str.strip().split()
-                    if len(parts) >= 2:
-                        lat = float(parts[0])
-                        lng = float(parts[1])
-                        # Altitude and accuracy (parts[2] and parts[3]) are available but not used here
-                        logger.debug(f"Extracted location from start-geopoint: {lat}, {lng}")
-                except (ValueError, TypeError, IndexError) as e:
-                    logger.warning(f"Failed to parse start-geopoint '{geopoint_str}': {e}")
+                    la = float(val[0]) if val[0] is not None else None
+                    ln = float(val[1]) if val[1] is not None else None
+                except (ValueError, TypeError):
+                    pass
+            elif isinstance(val, dict):
+                la = val.get("lat") or val.get("latitude")
+                ln = val.get("lng") or val.get("longitude") or val.get("lon")
+                if la is not None:
+                    try:
+                        la = float(la)
+                    except (ValueError, TypeError):
+                        la = None
+                if ln is not None:
+                    try:
+                        ln = float(ln)
+                    except (ValueError, TypeError):
+                        ln = None
+            return la, ln
 
-        # Priority 2: Fallback to common location field names in Kobo (for backward compatibility)
+        # Priority 1: Automatic metadata start-geopoint (device GPS). Try root, body, and alternate names.
+        for key in ("start-geopoint", "_start_geopoint", "start_geopoint"):
+            raw = self._get_by_path(effective, key) or self._find_value_by_key(effective, key)
+            la, ln = parse_val(raw or "")
+            if la is not None and ln is not None:
+                lat, lng = la, ln
+                logger.debug(f"Extracted location from {key}: {lat}, {lng}")
+                break
+
+        # Priority 1b: Manual geopoint fields (user-selected GPS in form)
+        manual_geopoint_fields = [
+            "gps_location", "info/gps_location", "location/gps_location", "beneficiary/gps_location",
+            "geopoint", "info/geopoint", "location/geopoint",
+            "gps", "info/gps", "location/gps", "site_gps", "location_gps", "point",
+        ]
+        if lat is None or lng is None:
+            for field in manual_geopoint_fields:
+                val = self._get_by_path(effective, field)
+                la, ln = parse_val(val) if val is not None else (None, None)
+                if la is not None and ln is not None:
+                    lat, lng = la, ln
+                    logger.debug(f"Extracted location from manual geopoint '{field}': {lat}, {lng}")
+                    break
+
+        # Priority 1c: Recursive scan for any key ending in gps_location, geopoint, or gps (catches nested/unknown groups)
+        if (lat is None or lng is None) and effective:
+            for seg, val in self._walk_leaves(effective):
+                if seg.lower() in ("start-geopoint",):
+                    continue
+                if seg.lower() not in ("gps_location", "geopoint", "gps", "point", "site_gps", "location_gps"):
+                    continue
+                la, ln = parse_val(val) if val is not None else (None, None)
+                if la is not None and ln is not None:
+                    lat, lng = la, ln
+                    logger.debug(f"Extracted location from nested geopoint '{seg}': {lat}, {lng}")
+                    break
+
+        # Priority 2: Fallback to common location field names in Kobo (list or dict; backward compatibility)
         if lat is None or lng is None:
             location_fields = ["_geolocation", "geolocation", "location", "coordinates"]
             for field in location_fields:
-                if field in submission_data:
-                    loc = submission_data[field]
-                    if isinstance(loc, list) and len(loc) >= 2:
-                        try:
-                            if loc[0] is not None and loc[1] is not None:
-                                if lat is None:
-                                    lat = float(loc[0])
-                                if lng is None:
-                                    lng = float(loc[1])
-                        except (ValueError, TypeError):
-                            pass
-                    elif isinstance(loc, dict):
-                        if lat is None:
-                            lat = loc.get("latitude") or loc.get("lat")
-                        if lng is None:
-                            lng = loc.get("longitude") or loc.get("lng") or loc.get("lon")
-                        if not location_name:
-                            location_name = loc.get("name") or loc.get("address")
-
-        # Priority 3: Check for separate lat/lng fields (for backward compatibility)
-        if lat is None:
-            for key in submission_data.keys():
-                # Skip start-geopoint as we already processed it
-                if key == "start-geopoint":
+                loc = effective.get(field) if isinstance(effective, dict) else None
+                if loc is None:
                     continue
-                if "lat" in key.lower() and submission_data[key]:
+                if isinstance(loc, list) and len(loc) >= 2:
                     try:
-                        lat = float(submission_data[key])
-                        break
+                        if loc[0] is not None and loc[1] is not None:
+                            lat = float(loc[0]) if lat is None else lat
+                            lng = float(loc[1]) if lng is None else lng
                     except (ValueError, TypeError):
                         pass
-        if lng is None:
-            for key in submission_data.keys():
-                # Skip start-geopoint as we already processed it
-                if key == "start-geopoint":
+                elif isinstance(loc, dict):
+                    if lat is None:
+                        lat = loc.get("latitude") or loc.get("lat")
+                        if lat is not None:
+                            try:
+                                lat = float(lat)
+                            except (ValueError, TypeError):
+                                lat = None
+                    if lng is None:
+                        lng = loc.get("longitude") or loc.get("lng") or loc.get("lon")
+                        if lng is not None:
+                            try:
+                                lng = float(lng)
+                            except (ValueError, TypeError):
+                                lng = None
+                    if not location_name:
+                        location_name = loc.get("name") or loc.get("address")
+
+        # Priority 3: Check for separate lat/lng fields (for backward compatibility)
+        if (lat is None or lng is None) and isinstance(effective, dict):
+            for key in effective.keys():
+                if key.lower() in ("start-geopoint", "_start_geopoint", "start_geopoint"):
                     continue
-                if "lng" in key.lower() or "lon" in key.lower():
-                    if submission_data[key]:
-                        try:
-                            lng = float(submission_data[key])
-                            break
-                        except (ValueError, TypeError):
-                            pass
+                v = effective.get(key)
+                if v is None or v == "":
+                    continue
+                if lat is None and "lat" in key.lower():
+                    try:
+                        lat = float(v)
+                    except (ValueError, TypeError):
+                        pass
+                if lng is None and ("lng" in key.lower() or "lon" in key.lower()):
+                    try:
+                        lng = float(v)
+                    except (ValueError, TypeError):
+                        pass
 
         return lat, lng, location_name
 
@@ -352,6 +481,51 @@ class ETLPipeline:
                     break
         
         return province, district
+
+    def extract_form_place_name(self, submission_data: dict[str, Any], cleaned_data: dict[str, Any]) -> Optional[str]:
+        """
+        Extract a user-entered place/location name from form (e.g. "Khoshal Khan, Kabul").
+        Prefer this over GPS reverse geocoding when Nominatim returns wrong results.
+        """
+        place_fields = [
+            "place_name", "site_name", "area", "locality", "village", "name_of_place",
+            "neighbourhood", "locality_name", "place",
+            "info/place_name", "info/site_name", "info/area", "info/locality",
+            "location/place_name", "location/site_name", "beneficiary/area",
+        ]
+        for field in place_fields:
+            for d in (cleaned_data, submission_data or {}):
+                if not isinstance(d, dict):
+                    continue
+                v = self._get_by_path(d, field)
+                if v is None or v == "":
+                    continue
+                if isinstance(v, list):
+                    v = v[0] if v else None
+                if v and isinstance(v, str) and v.strip():
+                    return str(v).strip()
+        return None
+
+    def _compute_gps_consistent(
+        self, form_province: Optional[str], gps_province: Optional[str]
+    ) -> tuple[bool, Optional[str]]:
+        """
+        Compare form province vs GPS reverse-geocode province to detect survey accuracy.
+        E.g. form says "Sholgara, Balkh" but GPS says "Kabul" -> mismatch (surveyor may have selected wrong location).
+        Returns (consistent, warning_msg). warning_msg is set only when inconsistent.
+        """
+        fp = (form_province or "").strip().lower()
+        gp = (gps_province or "").strip().lower()
+        if not fp or not gp:
+            return (True, None)
+        if fp == gp:
+            return (True, None)
+        if fp in gp or gp in fp:
+            return (True, None)
+        return (
+            False,
+            f"Form province ({form_province}) does not match GPS ({gps_province}). Verify survey location.",
+        )
 
     def reverse_geocode(self, lat: float, lng: float, max_retries: int = 3) -> tuple[Optional[str], Optional[str]]:
         """
@@ -430,15 +604,112 @@ class ETLPipeline:
             
         return None, None
 
-    def sync_form(self, kobo_form_id: str, sync_type: str = "incremental") -> SyncLog:
-        """Sync a form from Kobo."""
-        sync_log = SyncLog(
-            sync_type=sync_type,
-            status="running",
-            started_at=datetime.utcnow(),
+    def geocode_pending_submissions(
+        self, form_id: Optional[int] = None, limit: int = 50, validate_only: bool = False
+    ) -> tuple[int, int]:
+        """
+        Reverse geocode from location_lat/lng (from start-geopoint or manual gps_location).
+        - validate_only=False: fill location_name for submissions missing it; also set gps_consistent.
+        - validate_only=True: run on ALL with GPS, set gps_resolved_* and gps_consistent only (do not change location_name).
+        Use validate_only to detect wrong surveys: form says "Balkh" but GPS says "Kabul" -> gps_consistent=False.
+        Returns (updated_count, processed_count).
+        """
+        from sqlalchemy import or_
+
+        q = self.db.query(Submission).filter(
+            Submission.location_lat.isnot(None),
+            Submission.location_lng.isnot(None),
         )
-        self.db.add(sync_log)
-        self.db.flush()
+        if not validate_only:
+            q = q.filter(or_(Submission.location_name.is_(None), Submission.location_name == ""))
+        if form_id is not None:
+            q = q.filter(Submission.form_id == form_id)
+        subs = q.limit(limit).all()
+        updated = 0
+        for s in subs:
+            cleaned_data = dict(s.cleaned_data) if s.cleaned_data else {}
+            gps_province, gps_detailed = self.reverse_geocode(s.location_lat, s.location_lng)
+            if gps_province:
+                cleaned_data["gps_resolved_province"] = gps_province
+            if gps_detailed:
+                cleaned_data["gps_resolved_location"] = gps_detailed
+            gps_consistent, survey_warning = self._compute_gps_consistent(s.province, gps_province)
+            cleaned_data["gps_consistent"] = gps_consistent
+            if survey_warning:
+                cleaned_data["survey_location_warning"] = survey_warning
+            if validate_only:
+                updated += 1
+            else:
+                form_place = self.extract_form_place_name(s.submission_data or {}, cleaned_data)
+                form_loc = ", ".join(p for p in (s.district, s.province) if p) if (s.district or s.province) else None
+                if form_place:
+                    s.location_name = form_place
+                    updated += 1
+                elif form_loc:
+                    s.location_name = form_loc
+                    updated += 1
+                elif gps_detailed or gps_province:
+                    s.location_name = gps_detailed or gps_province
+                    updated += 1
+            s.cleaned_data = cleaned_data
+        self.db.commit()
+        return (updated, len(subs))
+
+    def _emit_progress_update(self, sync_log: SyncLog):
+        """Emit progress update via WebSocket (if available)."""
+        try:
+            from websocket_manager import manager
+            import asyncio
+            
+            message = {
+                "type": "sync_progress",
+                "sync_id": sync_log.id,
+                "status": sync_log.status,
+                "current_form_index": sync_log.current_form_index,
+                "total_forms": sync_log.total_forms,
+                "current_form_id": sync_log.current_form_id,
+                "current_form_title": sync_log.current_form_title,
+                "current_submission_index": sync_log.current_submission_index,
+                "total_submissions": sync_log.total_submissions,
+                "progress_percentage": sync_log.progress_percentage,
+                "records_added": sync_log.records_added,
+                "records_updated": sync_log.records_updated,
+                "records_processed": sync_log.records_processed,
+                "timestamp": datetime.utcnow().isoformat(),
+            }
+            
+            # Try to broadcast to sync-specific WebSocket connections
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    asyncio.create_task(manager.broadcast_to_sync(sync_log.id, message))
+                else:
+                    loop.run_until_complete(manager.broadcast_to_sync(sync_log.id, message))
+            except RuntimeError:
+                # No event loop, create new one
+                asyncio.run(manager.broadcast_to_sync(sync_log.id, message))
+        except Exception as e:
+            # Fail silently - WebSocket is optional
+            pass
+
+    def sync_form(self, kobo_form_id: str, sync_type: str = "incremental", sync_log: Optional[SyncLog] = None) -> SyncLog:
+        """Sync a form from Kobo.
+        
+        Args:
+            kobo_form_id: Kobo form ID to sync
+            sync_type: "full" or "incremental"
+            sync_log: Optional existing SyncLog to update (for multi-form syncs)
+        """
+        if sync_log is None:
+            sync_log = SyncLog(
+                sync_type=sync_type,
+                status="running",
+                started_at=datetime.utcnow(),
+                total_forms=1,
+                current_form_index=0,
+            )
+            self.db.add(sync_log)
+            self.db.flush()
 
         try:
             # Get or create form
@@ -481,6 +752,9 @@ class ETLPipeline:
                 form.last_synced_at = datetime.utcnow()
 
             sync_log.form_id = form.id
+            sync_log.current_form_id = form.id
+            sync_log.current_form_title = form.title
+            self.db.commit()
 
             # Get submissions
             if sync_type == "full":
@@ -489,10 +763,14 @@ class ETLPipeline:
                 # Incremental: only get new submissions
                 submissions = self.kobo_client.get_form_submissions(kobo_form_id, limit=1000)
 
+            total_submissions = len(submissions)
+            sync_log.total_submissions = total_submissions
+            self.db.commit()
+
             records_added = 0
             records_updated = 0
 
-            for kobo_submission in submissions:
+            for index, kobo_submission in enumerate(submissions):
                 submission_id = kobo_submission.get("_id") or kobo_submission.get("id")
 
                 if not submission_id:
@@ -537,23 +815,10 @@ class ETLPipeline:
                 if district:
                     cleaned_data["district"] = district
                 
-                # 2. Resolve location_name from GPS coordinates (reverse geocoding)
-                if lat is not None and lng is not None:
-                    gps_province, gps_detailed_location = self.reverse_geocode(lat, lng)
-                    
-                    # Use detailed GPS location directly as location_name
-                    if gps_detailed_location:
-                        loc_name = gps_detailed_location
-                    elif gps_province:
-                        loc_name = gps_province
-                    
-                    # Store GPS-resolved values in cleaned_data for reference
-                    if gps_province:
-                        cleaned_data["gps_resolved_province"] = gps_province
-                    if gps_detailed_location:
-                        cleaned_data["gps_resolved_location"] = gps_detailed_location
-                
-                # Fallback: if no GPS data, use form data for location_name
+                # location_name: during sync we only use form data (province/district).
+                # Reverse geocoding from location_lat/lng is done later via backfill_locations.py
+                # or POST /api/submissions/geocode-pending (reads lat/lng from DB, no slowdown at sync).
+                # Fallback: use form data for location_name when available
                 if not loc_name:
                     if province and district:
                         loc_name = f"{district}, {province}"
@@ -598,14 +863,36 @@ class ETLPipeline:
                     )
                     self.db.add(submission)
                     records_added += 1
+                
+                # Update progress every 10 submissions (or every submission for real-time)
+                sync_log.current_submission_index = index + 1
+                sync_log.records_added = records_added
+                sync_log.records_updated = records_updated
+                sync_log.records_processed = index + 1
+                
+                # Calculate progress percentage
+                if total_submissions > 0:
+                    sync_log.progress_percentage = ((index + 1) / total_submissions) * 100
+                else:
+                    sync_log.progress_percentage = 100.0
+                
+                # Commit progress every 10 submissions to reduce DB load
+                if (index + 1) % 10 == 0 or (index + 1) == total_submissions:
+                    self.db.commit()
+                    
+                    # Emit WebSocket/SSE progress update
+                    self._emit_progress_update(sync_log)
 
             sync_log.records_processed = len(submissions)
             sync_log.records_added = records_added
             sync_log.records_updated = records_updated
             sync_log.status = "success"
             sync_log.completed_at = datetime.utcnow()
-
+            sync_log.progress_percentage = 100.0
             self.db.commit()
+            
+            # Final progress update
+            self._emit_progress_update(sync_log)
 
             # Compute indicators after syncing
             self.compute_indicators(form.id)
@@ -739,29 +1026,72 @@ class ETLPipeline:
         indicator.computed_at = datetime.utcnow()
         return indicator
 
-    def sync_all_forms(self, sync_type: str = "incremental") -> list[SyncLog]:
+    def sync_all_forms(self, sync_type: str = "incremental", parent_sync_log: Optional[SyncLog] = None) -> list[SyncLog]:
         """Sync all forms from Kobo.
         
         Only syncs 'survey' type assets (skips question library items, blocks, templates).
+        
+        Args:
+            sync_type: "full" or "incremental"
+            parent_sync_log: Optional parent SyncLog to track overall progress
         """
         forms = self.kobo_client.get_forms()
+        
+        # Filter to only survey forms
+        survey_forms = []
+        for kobo_form in forms:
+            asset_type = kobo_form.get("asset_type", "survey")
+            if asset_type == "survey":
+                survey_forms.append(kobo_form)
+        
+        total_forms = len(survey_forms)
+        
+        # Create parent sync log if not provided
+        if parent_sync_log is None:
+            parent_sync_log = SyncLog(
+                sync_type=sync_type,
+                status="running",
+                started_at=datetime.utcnow(),
+                total_forms=total_forms,
+                current_form_index=0,
+            )
+            self.db.add(parent_sync_log)
+            self.db.flush()
+            self._emit_progress_update(parent_sync_log)
+        else:
+            parent_sync_log.total_forms = total_forms
+            self.db.commit()
+        
         sync_logs = []
 
-        for kobo_form in forms:
-            # Only sync actual survey forms, skip question library items, blocks, templates
-            asset_type = kobo_form.get("asset_type", "survey")
-            if asset_type != "survey":
-                logger.info(f"Skipping non-survey asset: {kobo_form.get('uid')} (type: {asset_type})")
-                continue
+        for form_index, kobo_form in enumerate(survey_forms):
+            # Update parent sync log
+            parent_sync_log.current_form_index = form_index
+            if total_forms > 0:
+                parent_sync_log.progress_percentage = (form_index / total_forms) * 100
+            self.db.commit()
+            self._emit_progress_update(parent_sync_log)
             
             # KoboToolbox API v2 uses 'uid' for form identifier
             form_id = kobo_form.get("uid") or kobo_form.get("formid") or kobo_form.get("id")
             if form_id:
                 try:
-                    sync_log = self.sync_form(str(form_id), sync_type=sync_type)
+                    # Pass parent sync log to track progress
+                    sync_log = self.sync_form(str(form_id), sync_type=sync_type, sync_log=parent_sync_log)
                     sync_logs.append(sync_log)
                 except Exception as e:
                     logger.error(f"Failed to sync form {form_id}: {e}")
+                    # Update parent log with error info
+                    parent_sync_log.error_message = f"Error syncing form {form_id}: {str(e)}"
+                    self.db.commit()
+
+        # Mark parent sync log as complete
+        parent_sync_log.status = "success"
+        parent_sync_log.completed_at = datetime.utcnow()
+        parent_sync_log.progress_percentage = 100.0
+        parent_sync_log.current_form_index = total_forms
+        self.db.commit()
+        self._emit_progress_update(parent_sync_log)
 
         return sync_logs
 

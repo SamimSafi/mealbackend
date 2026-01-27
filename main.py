@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 # Avoid running initialization at import time. Initialization is handled
 # in the FastAPI `lifespan` context manager or when running as a script.
     
-from fastapi import FastAPI, HTTPException, Depends, status, WebSocket, WebSocketDisconnect, Request, UploadFile, File, Form
+from fastapi import FastAPI, HTTPException, Depends, status, WebSocket, WebSocketDisconnect, Request, UploadFile, File, Form, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
@@ -48,6 +48,7 @@ from schemas import (
     AccountabilityDashboardData,
     SyncRequest,
     SyncLogResponse,
+    SyncProgressResponse,
     WebhookPayload,
     PermissionCreate,
     PermissionResponse,
@@ -106,6 +107,9 @@ from kobo_client import KoboClient
 from etl import ETLPipeline
 from datetime import datetime, timedelta, date as date_type
 from typing import Optional, Any
+import asyncio
+import threading
+from fastapi.responses import StreamingResponse
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -1011,6 +1015,25 @@ def get_form(
 # Submission Endpoints
 # ============================================================================
 
+def _get_enumerator_from_data(data: Optional[dict]) -> Optional[str]:
+    """Resolve enumerator from submission cleaned_data/submission_data.
+    Tries: _submitted_by (Kobo), info/enumerator_name, info/enumerator_id, then nested info.enumerator_*.
+    """
+    if not data:
+        return None
+    for key in ("_submitted_by", "info/enumerator_name", "info/enumerator_id"):
+        v = data.get(key)
+        if v is not None and str(v).strip():
+            return str(v).strip()
+    info = data.get("info")
+    if isinstance(info, dict):
+        for k in ("enumerator_name", "enumerator_id"):
+            v = info.get(k)
+            if v is not None and str(v).strip():
+                return str(v).strip()
+    return None
+
+
 @app.get("/api/submissions", response_model=list[SubmissionResponse])
 def list_submissions(
     form_id: int = None,
@@ -1048,7 +1071,9 @@ def list_submissions(
     result = []
     for s in submissions:
         response = SubmissionResponse.model_validate(s)
-        response.submission_data = s.cleaned_data or s.submission_data or {}
+        data = s.cleaned_data or s.submission_data or {}
+        response.submission_data = data
+        response.enumerator = _get_enumerator_from_data(data)
         result.append(response)
     
     return result
@@ -1088,7 +1113,9 @@ def get_submission(
         raise HTTPException(status_code=403, detail="Access denied to this submission's form")
     
     response = SubmissionResponse.model_validate(submission)
-    response.submission_data = submission.cleaned_data or submission.submission_data or {}
+    data = submission.cleaned_data or submission.submission_data or {}
+    response.submission_data = data
+    response.enumerator = _get_enumerator_from_data(data)
     return response
 
 
@@ -1646,6 +1673,24 @@ def get_choice_label_dynamic(form_schema: dict, field_name: str, code: str) -> s
         return code
 
 
+def _resolve_code_to_label(code: str, form, actual_path: str, request_field: str) -> str:
+    """Resolve a choice code to its label using form schema. Returns code if not found."""
+    if not code:
+        return code
+    question_map, choice_map = build_schema_maps(form.form_schema) if form.form_schema else ({}, {})
+    for var in [actual_path, actual_path.lower(), actual_path.split("/")[-1], request_field, request_field.lower()]:
+        if var in question_map:
+            meta = question_map[var]
+            if meta.get("list_name") and meta["list_name"] in choice_map:
+                c = str(code).lower()
+                for k, lbl in choice_map[meta["list_name"]].items():
+                    if str(k).lower() == c:
+                        return lbl
+            break
+    out = get_choice_label(form.form_schema, actual_path, code)
+    return out if out != code else get_choice_label_dynamic(form.form_schema, actual_path, code)
+
+
 def get_choice_label(form_schema: dict, field_name: str, code: str) -> str:
     """
     Look up the label for a choice code in the form schema.
@@ -1774,6 +1819,28 @@ def get_choice_label(form_schema: dict, field_name: str, code: str) -> str:
         return code
 
 
+def _apply_filters_dict(query, service, form, filters: dict):
+    """
+    Apply a filters dict (key=field path, value=scalar or list) to the query using
+    JSON extract. Uses service._resolve_field and _get_json_field. Returns the modified query.
+    """
+    if not filters:
+        return query
+    path_mapping = service._get_full_path_mapping(form)
+    for k, v in filters.items():
+        if v is None or v == "" or (isinstance(v, list) and len(v) == 0):
+            continue
+        resolved = service._resolve_field(k, path_mapping)
+        jexpr = service._get_json_field(resolved)
+        if jexpr is None:
+            continue
+        if isinstance(v, list):
+            query = query.filter(jexpr.in_([str(x) for x in v]))
+        else:
+            query = query.filter(jexpr == str(v))
+    return query
+
+
 def get_nested_field_value(payload: dict, field_name: str) -> Any:
     """
     Extract field value from payload, handling both nested (info/Province) and flattened (info_Province) formats.
@@ -1881,165 +1948,87 @@ def generate_box_plot(
 ):
     """
     Compute five-number summary + outliers for a numeric column on a form.
-
-    This is designed for visualising the distribution of a Kobo field
-    (e.g. duration, numeric score, _id) similar to the Streamlit dashboard.
+    Uses DB-side filtering and fetches only the target column (no full submission blobs).
     """
-    from statistics import median
+    from analysis_service import AnalysisService
 
     form = db.query(FormModel).filter(FormModel.id == request.form_id).first()
     if not form:
         raise HTTPException(status_code=404, detail="Form not found")
-
-    # Check access for non-admin users
     if not check_form_access(current_user, request.form_id, db):
         raise HTTPException(status_code=403, detail="Access denied to this form")
+    if db.query(Submission).filter(Submission.form_id == form.id).limit(1).first() is None:
+        raise HTTPException(status_code=400, detail=f"No submissions found for form_id {request.form_id}. Please sync data first.")
 
-    # Load all submissions for the form
-    submissions = db.query(Submission).filter(Submission.form_id == form.id).all()
-
-    if not submissions:
-        raise HTTPException(
-            status_code=400,
-            detail=f"No submissions found for form_id {request.form_id}. Please sync data first."
-        )
-
-    # Apply simple equality / IN filters on cleaned_data/submission_data
-    from analysis_service import AnalysisService
     service = AnalysisService(db)
     path_mapping = service._get_full_path_mapping(form)
-    
-    # Resolve column and filters smartly
     request_column = service._resolve_field(request.column, path_mapping)
     filters = request.filters or {}
-    resolved_filters = {}
-    for k, v in filters.items():
-        resolved_k = service._resolve_field(k, path_mapping)
-        resolved_filters[resolved_k] = v
-    filters = resolved_filters
+    cache_key = {"form_id": form.id, "column": request.column, "filters": filters}
+    cached = service._get_cache("box_plot", cache_key)
+    if cached:
+        return BoxPlotResponse(**cached)
 
-    values: list[float] = []
-    sample_payload_keys = None
-    non_numeric_count = 0
-    empty_count = 0
-    total_checked = 0
+    query = db.query(Submission).filter(Submission.form_id == form.id)
+    query = _apply_filters_dict(query, service, form, filters)
+    col_expr = service._get_json_field(request_column)
+    if col_expr is None:
+        return BoxPlotResponse(form_id=form.id, column=request.column, q1=0.0, median=0.0, q3=0.0, whisker_min=0.0, whisker_max=0.0, outliers=[], iqr=0.0, lower_bound=0.0, upper_bound=0.0, count=0, stats={"error": f"Invalid column path: {request.column}"})
 
-    for sub in submissions:
-        payload = sub.cleaned_data or sub.submission_data
-        if not payload or not isinstance(payload, dict):
+    rows = query.with_entities(col_expr).all()
+    total_checked = len(rows)
+    empty_count = sum(1 for (v,) in rows if v is None or (isinstance(v, str) and v.strip() == ""))
+    values = []
+    for (v,) in rows:
+        if v is None or (isinstance(v, str) and v.strip() == ""):
             continue
-
-        total_checked += 1
-        
-        # Save sample keys for debugging (first submission only)
-        if sample_payload_keys is None:
-            sample_payload_keys = list(payload.keys())[:30]
-
-        # Filter row-level
-        matches = True
-        for fname, fval in filters.items():
-            if fval is None or fval == "" or fval == []:
-                continue
-            v = get_nested_field_value(payload, fname)
-            if isinstance(fval, list):
-                if v not in fval:
-                    matches = False
-                    break
-            else:
-                if str(v) != str(fval):
-                    matches = False
-                    break
-        if not matches:
-            continue
-
-        # Extract numeric column value (handle nested field names like beneficiary/hh_size)
-        raw_val = get_nested_field_value(payload, request_column)
-        
-        if raw_val in (None, ""):
-            empty_count += 1
+        s = str(v).strip().strip('"')
+        if not s:
             continue
         try:
-            num_val = float(raw_val)
-            values.append(num_val)
+            values.append(float(s))
         except (ValueError, TypeError):
-            non_numeric_count += 1
-            continue
+            pass
+    non_numeric_count = total_checked - empty_count - len(values)
 
     if not values:
-        logger.debug(f"No numeric data for column '{request.column}' - returning empty box plot")
-        return BoxPlotResponse(
-            form_id=form.id,
-            column=request.column,
-            q1=0.0,
-            median=0.0,
-            q3=0.0,
-            whisker_min=0.0,
-            whisker_max=0.0,
-            outliers=[],
-            iqr=0.0,
-            lower_bound=0.0,
-            upper_bound=0.0,
-            count=0,
-            stats={
-                "total_submissions": len(submissions),
-                "checked_after_filters": total_checked,
-                "empty_values": empty_count,
-                "non_numeric_values": non_numeric_count,
-                "error": f"Field '{request.column}' contains no numeric data. Ensure you select a numeric field (integer/decimal)."
-            }
+        out = BoxPlotResponse(
+            form_id=form.id, column=request.column, q1=0.0, median=0.0, q3=0.0, whisker_min=0.0, whisker_max=0.0,
+            outliers=[], iqr=0.0, lower_bound=0.0, upper_bound=0.0, count=0,
+            stats={"total_submissions": total_checked, "checked_after_filters": total_checked, "empty_values": empty_count, "non_numeric_values": non_numeric_count, "error": f"Field '{request.column}' contains no numeric data. Ensure you select a numeric field (integer/decimal)."}
         )
+        service._set_cache("box_plot", cache_key, out.model_dump(), form.id)
+        return out
 
-    # Sort values for quantile computations
     values.sort()
     series = values
 
-    def percentile(p: float) -> float:
+    def _pct(p: float) -> float:
         if not series:
             return 0.0
         k = (len(series) - 1) * p
         f = int(k)
         c = min(f + 1, len(series) - 1)
-        if f == c:
-            return float(series[int(k)])
-        d0 = series[f] * (c - k)
-        d1 = series[c] * (k - f)
-        return float(d0 + d1)
+        return float(series[f] * (c - k) + series[c] * (k - f)) if f != c else float(series[int(k)])
 
-    q1 = percentile(0.25)
-    med = percentile(0.5)
-    q3 = percentile(0.75)
+    q1, med, q3 = _pct(0.25), _pct(0.5), _pct(0.75)
     iqr = q3 - q1
     lower_bound = q1 - 1.5 * iqr
     upper_bound = q3 + 1.5 * iqr
-
-    # Whiskers and outliers
     whisker_min_vals = [v for v in series if v >= lower_bound]
     whisker_max_vals = [v for v in series if v <= upper_bound]
     whisker_min = float(min(whisker_min_vals)) if whisker_min_vals else float(min(series))
     whisker_max = float(max(whisker_max_vals)) if whisker_max_vals else float(max(series))
-
     outliers = [float(v) for v in series if v < lower_bound or v > upper_bound]
 
-    return BoxPlotResponse(
-        form_id=form.id,
-        column=request.column,
-        q1=float(q1),
-        median=float(med),
-        q3=float(q3),
-        whisker_min=whisker_min,
-        whisker_max=whisker_max,
-        outliers=outliers,
-        iqr=float(iqr),
-        lower_bound=float(lower_bound),
-        upper_bound=float(upper_bound),
-        count=len(series),
-        stats={
-            "total_submissions": len(submissions),
-            "checked_after_filters": total_checked,
-            "empty_values": empty_count,
-            "non_numeric_values": non_numeric_count,
-        }
+    out = BoxPlotResponse(
+        form_id=form.id, column=request.column, q1=float(q1), median=float(med), q3=float(q3),
+        whisker_min=whisker_min, whisker_max=whisker_max, outliers=outliers, iqr=float(iqr),
+        lower_bound=float(lower_bound), upper_bound=float(upper_bound), count=len(series),
+        stats={"total_submissions": total_checked, "checked_after_filters": total_checked, "empty_values": empty_count, "non_numeric_values": non_numeric_count},
     )
+    service._set_cache("box_plot", cache_key, out.model_dump(), form.id)
+    return out
 
 
 @app.post("/api/charts/bar_chart", response_model=BarChartResponse)
@@ -2049,214 +2038,67 @@ def generate_bar_chart(
     db: Session = Depends(get_db),
 ):
     """
-    Categorical bar chart for a form.
-    
-    Auto-groups by the first filter field if group_by is not provided or empty.
-    Returns counts per distinct value with actual field values (not codes).
+    Categorical bar chart. Uses DB-side filtering and GROUP BY; only label resolution in Python.
     """
+    from analysis_service import AnalysisService
+
     form = db.query(FormModel).filter(FormModel.id == request.form_id).first()
     if not form:
         raise HTTPException(status_code=404, detail="Form not found")
-
-    # Check access for non-admin users
     if not check_form_access(current_user, request.form_id, db):
         raise HTTPException(status_code=403, detail="Access denied to this form")
 
-    submissions = db.query(Submission).filter(Submission.form_id == form.id).all()
-    
-    # Smart Dimension Resolution
-    from analysis_service import AnalysisService
     service = AnalysisService(db)
     path_mapping = service._get_full_path_mapping(form)
-    
     filters = request.filters or {}
-    
-    # Auto-detect group_by from filters if not provided
-    # The first field in filters is used for grouping (to show all its values)
     group_by_field = request.group_by
     if not group_by_field or (isinstance(group_by_field, str) and group_by_field.strip() == ""):
-        # Use the first filter field as group_by
-        if filters and len(filters) > 0:
+        if filters:
             group_by_field = list(filters.keys())[0]
         else:
-            raise HTTPException(
-                status_code=400,
-                detail="group_by field is required. Either provide group_by parameter or send a field in filters (e.g., {\"info/Province\": []})."
-            )
-    
-    # Resolve group_by and filters smartly
+            raise HTTPException(status_code=400, detail="group_by field is required. Either provide group_by or send a field in filters (e.g., {\"info/Province\": []}).")
     actual_group_by = service._resolve_field(group_by_field, path_mapping)
-    
-    resolved_filters = {}
-    for k, v in filters.items():
-        resolved_k = service._resolve_field(k, path_mapping)
-        resolved_filters[resolved_k] = v
-    filters = resolved_filters
+    filters_to_apply = {k: v for k, v in filters.items() if service._resolve_field(k, path_mapping) != actual_group_by}
+    cache_key = {"form_id": form.id, "group_by": group_by_field, "filters": request.filters or {}}
+    cached = service._get_cache("bar_chart", cache_key)
+    if cached:
+        return BarChartResponse(**cached)
 
-    counts: dict[str, int] = {}
-    
-    # Build schema maps once for label resolution
-    question_map, choice_map = {}, {}
-    if form.form_schema:
-        question_map, choice_map = build_schema_maps(form.form_schema)
+    query = db.query(Submission).filter(Submission.form_id == form.id)
+    query = _apply_filters_dict(query, service, form, filters_to_apply)
+    col_expr = service._get_json_field(actual_group_by)
+    if col_expr is None:
+        fl = group_by_field.split("/")[-1].replace("_", " ").title()
+        return BarChartResponse(form_id=form.id, group_by=group_by_field, items=[], total_submissions=0, unique_values=0, field_label=fl)
 
-    for sub in submissions:
-        payload = sub.cleaned_data or sub.submission_data
-        if not payload or not isinstance(payload, dict):
+    rows = query.filter(col_expr.isnot(None), col_expr != "").with_entities(col_expr, func.count(Submission.id)).group_by(col_expr).all()
+    counts = {}
+    for (code, cnt) in rows:
+        s = (str(code).strip().strip('"') if code else "") or ""
+        if not s:
             continue
+        label = _resolve_code_to_label(s, form, actual_group_by, group_by_field)
+        counts[label] = counts.get(label, 0) + int(cnt)
 
-        # Apply filters (excluding the group_by field - we want ALL values of that field)
-        # Other fields in filters are applied as actual filters
-        matches = True
-        for fname, fval in filters.items():
-            # Skip the field we're grouping by - we want ALL its values, not filtered
-            if fname == actual_group_by:
-                continue
-            # Skip empty/null filter values (empty array means no filter)
-            if fval is None or fval == "" or (isinstance(fval, list) and len(fval) == 0):
-                continue
-            # Apply actual filter
-            v = get_nested_field_value(payload, fname)
-            if isinstance(fval, list):
-                if v not in fval:
-                    matches = False
-                    break
-            else:
-                if str(v) != str(fval):
-                    matches = False
-                    break
-        if not matches:
-            continue
-
-        # Extract the grouping field value (e.g., "Kabul", "Balkh" for "info/Province")
-        raw_cat = get_nested_field_value(payload, actual_group_by)
-        
-        if raw_cat in (None, ""):
-            # Skip this submission if field not found (don't count as "Unknown")
-            continue
-        
-        # Clean and normalize the category value
-        category = str(raw_cat).strip()
-        
-        # Normalize code to label using Kobo best practices
-        if form.form_schema and category:
-            original_category = category
-            
-            # Find the field in question_map (try multiple matching strategies)
-            field_meta = None
-            field_name_variations = [
-                actual_group_by,
-                actual_group_by.lower(),
-                actual_group_by.replace("/", "_"),
-                actual_group_by.replace("/", "_").lower(),
-                actual_group_by.split("/")[-1],
-                actual_group_by.split("/")[-1].lower(),
-                group_by_field,  # Also try the original input
-                group_by_field.lower(),
-            ]
-            
-            for var_name in field_name_variations:
-                if var_name in question_map:
-                    field_meta = question_map[var_name]
-                    break
-                # Also try partial match
-                for q_name, q_meta in question_map.items():
-                    if var_name in q_name.lower() or q_name.lower().endswith(var_name):
-                        field_meta = q_meta
-                        break
-                if field_meta:
-                    break
-            
-            # If field found and has a choice list, look up the label
-            if field_meta and field_meta.get("list_name"):
-                list_name = field_meta["list_name"]
-                if list_name in choice_map:
-                    # Look up code in choice_map (case-insensitive)
-                    code_lower = str(category).lower()
-                    for code_key, label_value in choice_map[list_name].items():
-                        if str(code_key).lower() == code_lower:
-                            category = label_value
-                            break
-            
-            # Fallback to original lookup if schema maps didn't work
-            if category == original_category:
-                label = get_choice_label(form.form_schema, actual_group_by, category)
-                if label != category:
-                    category = label
-                else:
-                    # Try dynamic lookup as last resort
-                    label = get_choice_label_dynamic(form.form_schema, actual_group_by, category)
-                    if label != category:
-                        category = label
-                    elif len(category) <= 5 and (
-                        (len(category) >= 2 and category[0].islower() and category[1:].isdigit()) or
-                        (len(category) >= 2 and category[0].isupper() and category[1:].isdigit())
-                    ):
-                        logger.warning(
-                            f"Could not find label for code '{category}' in field '{group_by_field}'. "
-                            f"Debug: GET /api/forms/{form.id}/debug-schema?field_name={group_by_field}"
-                        )
-        
-        # Only add if we have a valid category
-        if category:
-            counts[category] = counts.get(category, 0) + 1
-
-    if not counts:
-        logger.debug(f"No data found for group_by field '{group_by_field}' - returning empty chart")
-        return BarChartResponse(
-            form_id=request.form_id,
-            field=group_by_field,
-            field_label=group_by_field.split("/")[-1].replace("_", " ").title(),
-            items=[],
-            stats=ChartStats(
-                total_submissions=len(submissions),
-                submissions_included=0,
-                unique_values=0,
-                most_common=None,
-                least_common=None,
-            ),
-        )
-
-    # Calculate statistics
     total_submissions_included = sum(counts.values())
-    unique_values_count = len(counts)
-    
-    # Get human-readable label for the field (try to extract from form schema)
     field_label = None
     if form.form_schema:
         try:
             schema = form.form_schema if isinstance(form.form_schema, dict) else json.loads(form.form_schema) if isinstance(form.form_schema, str) else {}
-            content = schema.get("content", {})
-            survey = content.get("survey", [])
-            for field in survey:
-                field_name = field.get("name", "")
-                if field_name == group_by_field or field_name.replace("/", "_") == group_by_field.replace("/", "_"):
-                    label = field.get("label", "")
-                    if isinstance(label, list) and len(label) > 0:
-                        field_label = label[0]
-                    elif isinstance(label, str):
-                        field_label = label
+            for f in (schema.get("content") or schema).get("survey") or []:
+                n = f.get("name", "")
+                if n == group_by_field or (n or "").replace("/", "_") == (group_by_field or "").replace("/", "_"):
+                    L = f.get("label", "")
+                    field_label = (L[0] if isinstance(L, list) and L else L) if L else None
                     break
         except Exception:
             pass
-    
-    # If no label found, create a readable one from field name
     if not field_label:
         field_label = group_by_field.split("/")[-1].replace("_", " ").title()
-
-    items = [
-        BarChartItem(category=cat, count=count)
-        for cat, count in sorted(counts.items(), key=lambda x: x[1], reverse=True)
-    ]
-
-    return BarChartResponse(
-        form_id=form.id,
-        group_by=group_by_field,
-        items=items,
-        total_submissions=total_submissions_included,
-        unique_values=unique_values_count,
-        field_label=field_label
-    )
+    items = [BarChartItem(category=c, count=k) for c, k in sorted(counts.items(), key=lambda x: -x[1])]
+    out = BarChartResponse(form_id=form.id, group_by=group_by_field, items=items, total_submissions=total_submissions_included, unique_values=len(counts), field_label=field_label)
+    service._set_cache("bar_chart", cache_key, out.model_dump(), form.id)
+    return out
 
 
 @app.post("/api/charts/polar_area", response_model=PolarAreaChartResponse)
@@ -2266,182 +2108,61 @@ def generate_polar_area_chart(
     db: Session = Depends(get_db),
 ):
     """
-    Polar area chart for categorical data.
-    
-    Returns frequency counts and percentages for a field's values,
-    suitable for rendering a polar area (radial bar) chart.
+    Polar area chart. Uses DB-side filtering and GROUP BY; label resolution in Python.
     """
+    from analysis_service import AnalysisService
+
     form = db.query(FormModel).filter(FormModel.id == request.form_id).first()
     if not form:
         raise HTTPException(status_code=404, detail="Form not found")
-
-    # Check access for non-admin users
     if not check_form_access(current_user, request.form_id, db):
         raise HTTPException(status_code=403, detail="Access denied to this form")
 
-    submissions = db.query(Submission).filter(Submission.form_id == form.id).all()
-    
-    # Smart Dimension Resolution
-    from analysis_service import AnalysisService
     service = AnalysisService(db)
     path_mapping = service._get_full_path_mapping(form)
-    
-    filters = request.filters or {}
-    
-    # Resolve field and filters smartly
     actual_field = service._resolve_field(request.field, path_mapping)
-    
-    resolved_filters = {}
-    for k, v in filters.items():
-        resolved_k = service._resolve_field(k, path_mapping)
-        resolved_filters[resolved_k] = v
-    filters = resolved_filters
+    filters = request.filters or {}
+    cache_key = {"form_id": form.id, "field": request.field, "filters": filters}
+    cached = service._get_cache("polar_area", cache_key)
+    if cached:
+        return PolarAreaChartResponse(**cached)
 
-    counts: dict[str, int] = {}
-    total_with_data = 0
-    
-    # Build schema maps once for label resolution
-    question_map, choice_map = {}, {}
-    if form.form_schema:
-        question_map, choice_map = build_schema_maps(form.form_schema)
+    query = db.query(Submission).filter(Submission.form_id == form.id)
+    query = _apply_filters_dict(query, service, form, filters)
+    total_submissions = query.count()
+    col_expr = service._get_json_field(actual_field)
+    if col_expr is None:
+        fl = request.field.split("/")[-1].replace("_", " ").title()
+        return PolarAreaChartResponse(form_id=request.form_id, field_name=request.field, field_label=fl, items=[], total_submissions=total_submissions, total_with_data=0, without_data=total_submissions, unique_values=0)
 
-    for sub in submissions:
-        payload = sub.cleaned_data or sub.submission_data
-        if not payload or not isinstance(payload, dict):
+    rows = query.filter(col_expr.isnot(None), col_expr != "").with_entities(col_expr, func.count(Submission.id)).group_by(col_expr).all()
+    counts = {}
+    for (code, cnt) in rows:
+        s = (str(code).strip().strip('"') if code else "") or ""
+        if not s:
             continue
-
-        # Apply filters
-        matches = True
-        for fname, fval in filters.items():
-            if fval is None or fval == "" or (isinstance(fval, list) and len(fval) == 0):
-                continue
-            v = get_nested_field_value(payload, fname)
-            if isinstance(fval, list):
-                if v not in fval:
-                    matches = False
-                    break
-            else:
-                if str(v) != str(fval):
-                    matches = False
-                    break
-        if not matches:
-            continue
-
-        # Extract field value
-        raw_val = get_nested_field_value(payload, actual_field)
-        
-        if raw_val in (None, ""):
-            continue
-        
-        total_with_data += 1
-        
-        # Normalize the value
-        category = str(raw_val).strip()
-        
-        # Try to convert code to label using schema
-        if form.form_schema and category:
-            original_category = category
-            
-            field_name_variations = [
-                actual_field,
-                actual_field.lower(),
-                actual_field.replace("/", "_"),
-                actual_field.replace("/", "_").lower(),
-                actual_field.split("/")[-1],
-                actual_field.split("/")[-1].lower(),
-                request.field, # Original input
-                request.field.lower(),
-            ]
-            
-            field_meta = None
-            for var_name in field_name_variations:
-                if var_name in question_map:
-                    field_meta = question_map[var_name]
-                    break
-                for q_name, q_meta in question_map.items():
-                    if var_name in q_name.lower() or q_name.lower().endswith(var_name):
-                        field_meta = q_meta
-                        break
-                if field_meta:
-                    break
-            
-            if field_meta and field_meta.get("list_name"):
-                list_name = field_meta["list_name"]
-                if list_name in choice_map:
-                    code_lower = str(category).lower()
-                    for code_key, label_value in choice_map[list_name].items():
-                        if str(code_key).lower() == code_lower:
-                            category = label_value
-                            break
-            
-            if category == original_category:
-                label = get_choice_label(form.form_schema, request.field, category)
-                if label != category:
-                    category = label
-                else:
-                    label = get_choice_label_dynamic(form.form_schema, request.field, category)
-                    if label != category:
-                        category = label
-        
-        if category:
-            counts[category] = counts.get(category, 0) + 1
-
-    if not counts:
-        return PolarAreaChartResponse(
-            form_id=request.form_id,
-            field_name=request.field,
-            field_label=request.field.split("/")[-1].replace("_", " ").title(),
-            items=[],
-            total_submissions=len(submissions),
-            total_with_data=0,
-            without_data=len(submissions),
-            unique_values=0,
-        )
-
-    # Calculate statistics
-    total = sum(counts.values())
-    
-    # Get human-readable label for the field
+        label = _resolve_code_to_label(s, form, actual_field, request.field)
+        counts[label] = counts.get(label, 0) + int(cnt)
+    total_with_data = sum(counts.values())
+    total = total_with_data or 1
     field_label = None
     if form.form_schema:
         try:
             schema = form.form_schema if isinstance(form.form_schema, dict) else json.loads(form.form_schema) if isinstance(form.form_schema, str) else {}
-            content = schema.get("content", {})
-            survey = content.get("survey", [])
-            for field in survey:
-                field_name = field.get("name", "")
-                if field_name == request.field or field_name.replace("/", "_") == request.field.replace("/", "_"):
-                    label = field.get("label", "")
-                    if isinstance(label, list) and len(label) > 0:
-                        field_label = label[0]
-                    elif isinstance(label, str):
-                        field_label = label
+            for f in (schema.get("content") or schema).get("survey") or []:
+                n = f.get("name", "")
+                if (n or "").replace("/", "_") == (request.field or "").replace("/", "_"):
+                    L = f.get("label", "")
+                    field_label = (L[0] if isinstance(L, list) and L else L) if L else None
                     break
         except Exception:
             pass
-    
     if not field_label:
         field_label = request.field.split("/")[-1].replace("_", " ").title()
-
-    items = [
-        PolarAreaItem(
-            label=cat,
-            value=count,
-            percentage=round((count / total * 100), 2)
-        )
-        for cat, count in sorted(counts.items(), key=lambda x: x[1], reverse=True)
-    ]
-
-    return PolarAreaChartResponse(
-        form_id=request.form_id,
-        field_name=request.field,
-        field_label=field_label,
-        items=items,
-        total_submissions=len(submissions),
-        total_with_data=total_with_data,
-        without_data=len(submissions) - total_with_data,
-        unique_values=len(counts),
-    )
+    items = [PolarAreaItem(label=c, value=k, percentage=round((k / total * 100), 2)) for c, k in sorted(counts.items(), key=lambda x: -x[1])]
+    out = PolarAreaChartResponse(form_id=request.form_id, field_name=request.field, field_label=field_label, items=items, total_submissions=total_submissions, total_with_data=total_with_data, without_data=total_submissions - total_with_data, unique_values=len(counts))
+    service._set_cache("polar_area", cache_key, out.model_dump(), form.id)
+    return out
 
 
 @app.get("/api/indicators/{indicator_id}", response_model=IndicatorResponse)
@@ -2507,12 +2228,12 @@ def get_dashboard_summary(
     total_submissions = submissions_query.count()
     total_indicators = indicators_query.count()
     
-    # Recent submissions (last 7 days)
-    seven_days_ago = datetime.utcnow() - timedelta(days=7)
-    recent_submissions = (
+    # Recent submissions: count of the last 30 records (by created_at), not a time window
+    recent_submissions = len(
         submissions_query
-        .filter(Submission.created_at >= seven_days_ago)
-        .count()
+        .order_by(Submission.created_at.desc())
+        .limit(30)
+        .all()
     )
     
     # Forms by category
@@ -3155,28 +2876,91 @@ def list_kpis(
 # Sync Endpoints
 # ============================================================================
 
+def run_sync_in_background(sync_log_id: int, form_id: Optional[int], sync_type: str):
+    """Background task to run sync operation. After sync, runs reverse geocoding on DB lat/lng (no extra sync time)."""
+    from database import SessionLocal
+    db = SessionLocal()
+    try:
+        etl = ETLPipeline(db)
+        sync_log = db.query(SyncLog).filter(SyncLog.id == sync_log_id).first()
+        
+        if not sync_log:
+            logger.error(f"Sync log {sync_log_id} not found")
+            return
+        
+        try:
+            if form_id:
+                # Sync specific form
+                form = db.query(FormModel).filter(FormModel.id == form_id).first()
+                if not form:
+                    sync_log.status = "error"
+                    sync_log.error_message = "Form not found"
+                    sync_log.completed_at = datetime.utcnow()
+                    db.commit()
+                    return
+                etl.sync_form(form.kobo_form_id, sync_type=sync_type, sync_log=sync_log)
+            else:
+                # Sync all forms
+                etl.sync_all_forms(sync_type=sync_type, parent_sync_log=sync_log)
+            # After sync: reverse geocode from DB (location_lat/lng). Runs in same background task; sync already "complete" to user.
+            # Process up to 500 per run; for large syncs run 2 passes. Nominatim allows ~1 req/s; limit keeps sync responsive.
+            try:
+                total_updated, total_processed = 0, 0
+                for _ in range(2):
+                    u, p = etl.geocode_pending_submissions(form_id=form_id, limit=500)
+                    total_updated += u
+                    total_processed += p
+                    if p == 0:
+                        break
+                if total_processed > 0:
+                    logger.info(f"Geocode-pending after sync: updated={total_updated}, processed={total_processed}")
+            except Exception as ge:
+                logger.warning(f"Geocode-pending after sync failed (non-fatal): {ge}")
+        except Exception as e:
+            logger.error(f"Sync error in background task: {e}", exc_info=True)
+            sync_log.status = "error"
+            sync_log.error_message = str(e)
+            sync_log.completed_at = datetime.utcnow()
+            db.commit()
+    finally:
+        db.close()
+
 @app.post("/api/sync", response_model=SyncLogResponse)
 def sync_forms(
     sync_request: SyncRequest,
+    background_tasks: BackgroundTasks,
     current_user: User = Depends(require_role("admin")),
     db: Session = Depends(get_db),
 ):
-    """Sync forms from Kobo (admin only)."""
+    """Sync forms from Kobo (admin only). Returns immediately and runs sync in background."""
     try:
-        etl = ETLPipeline(db)
+        # Create sync log entry
+        sync_log = SyncLog(
+            sync_type=sync_request.sync_type,
+            status="running",
+            started_at=datetime.utcnow(),
+            total_forms=1 if sync_request.form_id else 0,  # Will be updated when we know total
+            current_form_index=0,
+        )
+        db.add(sync_log)
+        db.flush()
         
+        form_id = None
         if sync_request.form_id:
-            # Sync specific form
             form = db.query(FormModel).filter(FormModel.id == sync_request.form_id).first()
             if not form:
                 raise HTTPException(status_code=404, detail="Form not found")
-            sync_log = etl.sync_form(form.kobo_form_id, sync_type=sync_request.sync_type)
-        else:
-            # Sync all forms
-            sync_logs = etl.sync_all_forms(sync_type=sync_request.sync_type)
-            sync_log = sync_logs[0] if sync_logs else None
-            if not sync_log:
-                raise HTTPException(status_code=500, detail="Sync failed")
+            form_id = form.id
+        
+        db.commit()
+        
+        # Run sync in background
+        background_tasks.add_task(
+            run_sync_in_background,
+            sync_log.id,
+            form_id,
+            sync_request.sync_type
+        )
         
         return SyncLogResponse.model_validate(sync_log)
     except HTTPException:
@@ -3258,6 +3042,25 @@ def get_sync_logs(
     return [SyncLogResponse.model_validate(log) for log in logs]
 
 
+@app.post("/api/submissions/geocode-pending")
+def geocode_pending_submissions(
+    form_id: Optional[int] = None,
+    limit: int = 50,
+    validate_only: bool = False,
+    current_user: User = Depends(require_role("admin")),
+    db: Session = Depends(get_db),
+):
+    """
+    Reverse geocode from location_lat/lng (start-geopoint or manual gps_location). Run after sync.
+    - validate_only=false: fill location_name for those missing it; set gps_consistent.
+    - validate_only=true: run on ALL with GPS, set gps_resolved_* and gps_consistent only (for survey accuracy: form vs GPS).
+    Inaccurate survey: form "Sholgara, Balkh" but GPS "Kabul" -> cleaned_data.gps_consistent=false, survey_location_warning set.
+    """
+    etl = ETLPipeline(db)
+    updated, processed = etl.geocode_pending_submissions(form_id=form_id, limit=limit, validate_only=validate_only)
+    return {"updated": updated, "processed": processed, "message": f"Geocoded {updated} of {processed} pending."}
+
+
 # ============================================================================
 # Webhook Endpoint (Kobo REST Services)
 # ============================================================================
@@ -3301,6 +3104,21 @@ def kobo_webhook(
         # Run incremental sync for this Kobo form id
         etl = ETLPipeline(db)
         sync_log = etl.sync_form(str(kobo_form_id), sync_type="incremental")
+        form_id = sync_log.form_id
+
+        # Reverse geocode from DB (lat/lng) in background so webhook returns fast; ~1s per unique location.
+        def _geocode_after_webhook():
+            from database import SessionLocal
+            _db = SessionLocal()
+            try:
+                _etl = ETLPipeline(_db)
+                _etl.geocode_pending_submissions(form_id=form_id, limit=50)
+            except Exception as e:
+                logger.warning(f"Geocode-pending after webhook failed: {e}")
+            finally:
+                _db.close()
+
+        threading.Thread(target=_geocode_after_webhook, daemon=True).start()
 
         return {
             "status": "success",
@@ -3691,131 +3509,116 @@ def get_form_chart_data(
         actual_secondary = service._resolve_field(secondary_dimension, path_mapping)
         actual_time = service._resolve_field(time_dimension, path_mapping)
         
-        # Use resolved names for processing, but keep original names for response labels if needed
+        # Use resolved names for processing
         dimension = actual_dimension
         secondary_dimension = actual_secondary
         time_dimension = actual_time
 
-        # Query submissions
-        query = db.query(Submission).filter(Submission.form_id == form_id)
-        submissions = query.all()
-        
-        # Apply filters - use cleaned_data or submission_data, and handle nested fields
-        if filters:
-            # Resolve filter keys smartly
-            resolved_filters = {}
-            for k, v in filters.items():
-                resolved_k = service._resolve_field(k, path_mapping)
-                resolved_filters[resolved_k] = v
-            filters = resolved_filters
+        def _q():
+            return _apply_filters_dict(db.query(Submission).filter(Submission.form_id == form_id), service, form, request_data.filters or {})
 
-            filtered_submissions = []
-            for sub in submissions:
-                try:
-                    # Use cleaned_data (normalized) or submission_data (raw)
-                    payload = sub.cleaned_data or sub.submission_data
-                    if not payload or not isinstance(payload, dict):
-                        continue
-                    
-                    matches = True
-                    for field_name, filter_value in filters.items():
-                        # Skip empty filters (empty list means no filter - show all)
-                        if filter_value is None or filter_value == "" or (isinstance(filter_value, list) and len(filter_value) == 0):
-                            continue
-                        
-                        # Use get_nested_field_value to handle nested paths like info/province
-                        field_value = get_nested_field_value(payload, field_name)
-                        
-                        if isinstance(filter_value, list):
-                            # Filter by list of values
-                            if field_value not in filter_value:
-                                matches = False
-                                break
-                        else:
-                            # Filter by single value
-                            if str(field_value) != str(filter_value):
-                                matches = False
-                                break
-                    if matches:
-                        filtered_submissions.append(sub)
-                except Exception as e:
-                    logger.warning(f"Error filtering submission {sub.id}: {e}")
-                    continue
-            submissions = filtered_submissions
-        
-        if not submissions:
-            return {
-                "form_id": form_id,
-                "chart_type": chart_type,
-                "dimension": dimension,
-                "data": [],
-                "total": 0,
-            }
-        
-        # Process data based on chart type
+        cache_key = {"form_id": form_id, "chart_type": chart_type, "dimension": request_data.dimension, "secondary_dimension": request_data.secondary_dimension, "time_dimension": request_data.time_dimension, "bin_count": request_data.bin_count or 10, "filters": request_data.filters or {}}
+        cached = service._get_cache("chart_data", cache_key)
+        if cached:
+            return cached
+
+        total = _q().count()
+        if total == 0:
+            return {"form_id": form_id, "chart_type": chart_type, "dimension": dimension, "data": [], "total": 0}
+
+        apply_age = (request_data.dimension or "").lower() in ["age", "age_of_respondent", "respondent_age"]
+        chart_data = []
         try:
-            # Handle special dimension cases
-            actual_dimension = dimension
-            apply_age_grouping = False
-            
-            if dimension in ["age", "age_of_respondent", "respondent_age"]:
-                apply_age_grouping = True
-            
-            chart_data = []
             if chart_type == "line" and time_dimension:
-                # Line chart: group by time dimension
-                chart_data = _process_line_chart(submissions, time_dimension, dimension, form.form_schema)
+                te = service._get_json_field(time_dimension)
+                if te is not None:
+                    rows = _q().filter(te.isnot(None), te != "").with_entities(te, func.count(Submission.id)).group_by(te).all()
+                    chart_data = [{"name": str(k).strip().strip('"') or k, "value": v, "date": str(k).strip().strip('"') or k} for k, v in sorted(rows, key=lambda x: (str(x[0]) or ""))]
             elif chart_type in ["stacked_bar", "diverging_stacked_bar"] and secondary_dimension:
-                # Stacked bar chart: group by dimension, stack by secondary_dimension
-                chart_data = _process_stacked_bar_chart(submissions, dimension, secondary_dimension, form.form_schema)
+                de, se = service._get_json_field(dimension), service._get_json_field(secondary_dimension)
+                if de is not None and se is not None:
+                    rows = _q().filter(de.isnot(None), de != "", se.isnot(None), se != "").with_entities(de, se, func.count(Submission.id)).group_by(de, se).all()
+                    g, all_s = {}, set()
+                    for (p, s, c) in rows:
+                        pl = _resolve_code_to_label((str(p).strip().strip('"') if p else "") or "", form, dimension, request_data.dimension or dimension)
+                        sl = _resolve_code_to_label((str(s).strip().strip('"') if s else "") or "", form, secondary_dimension, request_data.secondary_dimension or secondary_dimension)
+                        g.setdefault(pl, {})[sl] = g.get(pl, {}).get(sl, 0) + int(c)
+                        all_s.add(sl)
+                    all_s = sorted(all_s)
+                    chart_data = [{"name": p, **{s: g[p].get(s, 0) for s in all_s}} for p in sorted(g.keys())]
             elif chart_type == "histogram":
-                # Histogram: frequency distribution of numeric dimension
-                chart_data = _process_histogram(submissions, dimension, bin_count)
+                de = service._get_json_field(dimension)
+                if de is not None:
+                    rows = _q().with_entities(de).filter(de.isnot(None), de != "").all()
+                    vals = []
+                    for (v,) in rows:
+                        s = (str(v).strip().strip('"') if v else "") or ""
+                        try:
+                            vals.append(float(s))
+                        except (ValueError, TypeError):
+                            pass
+                    chart_data = _histogram_from_values(vals, bin_count)
             elif chart_type == "scatter" and secondary_dimension:
-                # Scatter plot: relationship between two numeric variables
-                chart_data = _process_scatter_plot(submissions, dimension, secondary_dimension)
+                de, se = service._get_json_field(dimension), service._get_json_field(secondary_dimension)
+                if de is not None and se is not None:
+                    rows = _q().with_entities(de, se).filter(de.isnot(None), de != "", se.isnot(None), se != "").all()
+                    for (x, y) in rows:
+                        try:
+                            xn = float((str(x).strip().strip('"') or "") or "0")
+                            yn = float((str(y).strip().strip('"') or "") or "0")
+                            chart_data.append({"x": xn, "y": yn, "name": f"({xn:.1f}, {yn:.1f})"})
+                        except (ValueError, TypeError):
+                            pass
             elif chart_type in ["pie", "donut"]:
-                # Pie/Donut chart: proportions
-                chart_data = _process_pie_chart(submissions, dimension, form.form_schema)
+                de = service._get_json_field(dimension)
+                if de is not None:
+                    rows = _q().filter(de.isnot(None), de != "").with_entities(de, func.count(Submission.id)).group_by(de).all()
+                    cnt = {}
+                    for (c, n) in rows:
+                        s = (str(c).strip().strip('"') if c else "") or ""
+                        if s:
+                            lbl = _resolve_code_to_label(s, form, dimension, request_data.dimension or dimension)
+                            cnt[lbl] = cnt.get(lbl, 0) + int(n)
+                    chart_data = [{"name": k, "value": v} for k, v in sorted(cnt.items(), key=lambda x: -x[1])]
             else:
-                # Bar chart: simple grouping by dimension
-                if apply_age_grouping:
-                    # Apply age grouping
-                    chart_data = _process_bar_chart_with_grouping(submissions, dimension, _group_by_age_range)
-                else:
-                    chart_data = _process_bar_chart(submissions, dimension, form.form_schema)
-            
-            # If data is empty, check if it's a type mismatch
+                de = service._get_json_field(dimension)
+                if de is not None:
+                    if apply_age:
+                        rows = _q().with_entities(de).filter(de.isnot(None), de != "").all()
+                        cnt = {}
+                        for (v,) in rows:
+                            s = (str(v).strip().strip('"') if v else "") or ""
+                            try:
+                                r = _group_by_age_range(s)
+                                cnt[r] = cnt.get(r, 0) + 1
+                            except Exception:
+                                pass
+                        chart_data = [{"name": k, "value": v} for k, v in sorted(cnt.items(), key=lambda x: -x[1])]
+                    else:
+                        rows = _q().filter(de.isnot(None), de != "").with_entities(de, func.count(Submission.id)).group_by(de).all()
+                        cnt = {}
+                        for (c, n) in rows:
+                            s = (str(c).strip().strip('"') if c else "") or ""
+                            if s:
+                                lbl = _resolve_code_to_label(s, form, dimension, request_data.dimension or dimension)
+                                cnt[lbl] = cnt.get(lbl, 0) + int(n)
+                        chart_data = [{"name": k, "value": v} for k, v in sorted(cnt.items(), key=lambda x: -x[1])]
+
             if not chart_data:
                 msg = f"No data found for dimension '{dimension}'"
                 if chart_type in ["histogram", "scatter", "box_plot"]:
                     msg += ". This chart requires numeric fields (integer/decimal)."
                 elif chart_type == "line":
                     msg += ". This chart requires a valid time dimension (date/datetime)."
-                
-                return {
-                    "form_id": form_id,
-                    "chart_type": chart_type,
-                    "dimension": dimension,
-                    "data": [],
-                    "total": len(submissions),
-                    "warning": msg
-                }
+                return {"form_id": form_id, "chart_type": chart_type, "dimension": dimension, "data": [], "total": total, "warning": msg}
         except Exception as e:
             logger.error(f"Error processing chart data for form {form_id}: {e}", exc_info=True)
             raise HTTPException(status_code=500, detail=f"Error processing chart data: {str(e)}")
-        
-        response = {
-            "form_id": form_id,
-            "chart_type": chart_type,
-            "dimension": dimension,
-            "data": chart_data,
-            "total": len(submissions),
-        }
-        
-        if secondary_dimension and chart_type in ["stacked_bar", "diverging_stacked_bar"]:
+
+        response = {"form_id": form_id, "chart_type": chart_type, "dimension": dimension, "data": chart_data, "total": total}
+        if secondary_dimension and chart_type in ["stacked_bar", "diverging_stacked_bar", "scatter"]:
             response["secondary_dimension"] = secondary_dimension
-        
+        service._set_cache("chart_data", cache_key, response, form.id)
         return response
     except HTTPException:
         raise
@@ -4094,6 +3897,26 @@ def _process_stacked_bar_chart(submissions: list, dimension: str, secondary_dime
     return chart_data
 
 
+def _histogram_from_values(values: list, bin_count: int) -> list:
+    """Build histogram bins from a list of numeric values."""
+    if not values:
+        return []
+    try:
+        min_val, max_val = min(values), max(values)
+        bin_width = (max_val - min_val) / bin_count if max_val > min_val else 1
+        bins = {}
+        for v in values:
+            i = min(int((v - min_val) / bin_width) if bin_width > 0 else 0, bin_count - 1)
+            start = min_val + i * bin_width
+            end = min_val + (i + 1) * bin_width
+            lbl = f"{start:.1f}-{end:.1f}"
+            bins[lbl] = bins.get(lbl, 0) + 1
+        return [{"name": k, "value": v} for k, v in sorted(bins.items(), key=lambda x: float(x[0].split("-")[0]))]
+    except Exception as e:
+        logger.error(f"Error building histogram: {e}", exc_info=True)
+        return []
+
+
 def _process_histogram(submissions: list, dimension: str, bin_count: int) -> list:
     """Process data for histogram - frequency distribution of numeric data."""
     values = []
@@ -4105,36 +3928,13 @@ def _process_histogram(submissions: list, dimension: str, bin_count: int) -> lis
             value = get_nested_field_value(sub_data, dimension)
             try:
                 if value is not None:
-                    num_value = float(value)
-                    values.append(num_value)
+                    values.append(float(value))
             except (ValueError, TypeError):
                 continue
         except Exception as e:
             logger.warning(f"Error processing submission {submission.id} for histogram: {e}")
             continue
-    
-    if not values:
-        return []
-    
-    try:
-        min_val = min(values)
-        max_val = max(values)
-        bin_width = (max_val - min_val) / bin_count if max_val > min_val else 1
-        
-        bins = {}
-        for value in values:
-            bin_index = int((value - min_val) / bin_width) if bin_width > 0 else 0
-            bin_index = min(bin_index, bin_count - 1)
-            bin_start = min_val + (bin_index * bin_width)
-            bin_end = min_val + ((bin_index + 1) * bin_width)
-            bin_label = f"{bin_start:.1f}-{bin_end:.1f}"
-            bins[bin_label] = bins.get(bin_label, 0) + 1
-        
-        chart_data = [{"name": k, "value": v} for k, v in sorted(bins.items(), key=lambda x: float(x[0].split("-")[0]))]
-        return chart_data
-    except Exception as e:
-        logger.error(f"Error processing histogram: {e}", exc_info=True)
-        return []
+    return _histogram_from_values(values, bin_count)
 
 
 def _process_scatter_plot(submissions: list, x_dimension: str, y_dimension: str) -> list:
@@ -4166,11 +3966,11 @@ def get_form_submissions(
     form_id: int,
     filters: Optional[dict] = None,
     skip: int = 0,
-    limit: int = 100,
+    limit: int = 30,
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db),
 ):
-    """Get submissions for a specific form with optional filters."""
+    """Get submissions for a specific form. Returns the last N records (default 30) by created_at, no date cutoff."""
     form = db.query(FormModel).filter(FormModel.id == form_id).first()
     if not form:
         raise HTTPException(status_code=404, detail="Form not found")
@@ -4179,20 +3979,16 @@ def get_form_submissions(
     if not check_form_access(current_user, form_id, db):
         raise HTTPException(status_code=403, detail="Access denied to this form")
     
-    # Limit to recent 30 days by default if no date filters are provided
-    thirty_days_ago = datetime.utcnow() - timedelta(days=30)
-    query = db.query(Submission).filter(
-        Submission.form_id == form_id,
-        Submission.created_at >= thirty_days_ago
-    )
-    
-    # Apply filters if provided (simplified - use proper JSON querying in production)
+    # No date cutoff: show the most recent records (last N by created_at). Use limit to control how many (default 30).
+    query = db.query(Submission).filter(Submission.form_id == form_id)
     submissions = query.order_by(desc(Submission.created_at)).offset(skip).limit(limit).all()
     
     result = []
     for s in submissions:
         response = SubmissionResponse.model_validate(s)
-        response.submission_data = s.cleaned_data or s.submission_data or {}
+        data = s.cleaned_data or s.submission_data or {}
+        response.submission_data = data
+        response.enumerator = _get_enumerator_from_data(data)
         result.append(response)
     
     return result
@@ -4239,7 +4035,9 @@ def get_submission_details(
     result = []
     for submission in submissions:
         response = SubmissionResponse.model_validate(submission)
-        response.submission_data = submission.cleaned_data or submission.submission_data or {}
+        data = submission.cleaned_data or submission.submission_data or {}
+        response.submission_data = data
+        response.enumerator = _get_enumerator_from_data(data)
         result.append(response)
     
     return result
@@ -4375,106 +4173,59 @@ def get_form_map_data(
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db),
 ):
-    """Get map data (locations) for a specific form with optional filtering."""
+    """Get map data (locations). Uses DB-side filtering; fetches only lat/lng/name/id/submitted_at."""
     try:
+        from analysis_service import AnalysisService
+
         form = db.query(FormModel).filter(FormModel.id == form_id).first()
         if not form:
             raise HTTPException(status_code=404, detail="Form not found")
-        
-        # Check access for non-admin users
         if not check_form_access(current_user, form_id, db):
             raise HTTPException(status_code=403, detail="Access denied to this form")
-        
-        query = db.query(Submission).filter(
-            Submission.form_id == form_id,
-            Submission.location_lat.isnot(None),
-            Submission.location_lng.isnot(None),
-        )
-        
-        submissions = query.all()
-        
-        # Parse and apply filters if provided
+
         filter_dict = {}
         if filters:
             try:
                 filter_dict = json.loads(filters) if isinstance(filters, str) else filters
             except (json.JSONDecodeError, TypeError):
-                filter_dict = {}
-        
-        # Apply filters to submissions
+                pass
+        if not isinstance(filter_dict, dict):
+            filter_dict = {}
+
+        query = db.query(Submission).filter(
+            Submission.form_id == form_id,
+            Submission.location_lat.isnot(None),
+            Submission.location_lng.isnot(None),
+        )
         if filter_dict:
-            filtered_submissions = []
-            for sub in submissions:
-                try:
-                    if not sub.submission_data or not isinstance(sub.submission_data, dict):
-                        continue
-                    
-                    sub_data = sub.submission_data
-                    matches = True
-                    for field_name, filter_value in filter_dict.items():
-                        if filter_value is None or filter_value == "":
-                            continue
-                        field_value = sub_data.get(field_name)
-                        if isinstance(filter_value, list):
-                            if field_value not in filter_value:
-                                matches = False
-                                break
-                        else:
-                            if str(field_value) != str(filter_value):
-                                matches = False
-                                break
-                    if matches:
-                        filtered_submissions.append(sub)
-                except Exception as e:
-                    logger.warning(f"Error filtering submission {sub.id}: {e}")
-                    continue
-            submissions = filtered_submissions
-        
-        # Group locations by lat/lng to aggregate multiple submissions at same location
+            service = AnalysisService(db)
+            query = _apply_filters_dict(query, service, form, filter_dict)
+
+        rows = query.with_entities(
+            Submission.location_lat,
+            Submission.location_lng,
+            Submission.location_name,
+            Submission.id,
+            Submission.submitted_at,
+        ).all()
+
         location_groups = {}
-        map_data = []
-        
-        for submission in submissions:
+        for (lat, lng, name, sid, sub_at) in rows:
             try:
-                # Ensure location values are valid floats
-                lat = float(submission.location_lat) if submission.location_lat is not None else None
-                lng = float(submission.location_lng) if submission.location_lng is not None else None
-                
                 if lat is None or lng is None:
                     continue
-                
-                # Round coordinates to 4 decimal places for grouping
-                lat_rounded = round(lat, 4)
-                lng_rounded = round(lng, 4)
-                location_key = f"{lat_rounded},{lng_rounded}"
-                
-                if location_key not in location_groups:
-                    location_groups[location_key] = {
-                        "lat": lat_rounded,
-                        "lng": lng_rounded,
-                        "name": submission.location_name or "Unknown",
-                        "count": 0,
-                        "submissions": []
-                    }
-                
-                location_groups[location_key]["count"] += 1
-                location_groups[location_key]["submissions"].append({
-                    "submission_id": submission.id,
-                    "submitted_at": submission.submitted_at.isoformat() if submission.submitted_at else None,
-                })
-            except (ValueError, TypeError) as e:
-                logger.warning(f"Error processing submission {submission.id} for map data: {e}")
-                continue
-        
-        # Convert grouped locations to map data
-        for location_key, location_info in location_groups.items():
-            map_data.append({
-                "lat": location_info["lat"],
-                "lng": location_info["lng"],
-                "name": location_info["name"],
-                "count": location_info["count"],
-                "submissions": location_info["submissions"]
-            })
+                la, ln = float(lat), float(lng)
+                if la != la or ln != ln:
+                    continue
+                key = f"{round(la, 4)},{round(ln, 4)}"
+                if key not in location_groups:
+                    location_groups[key] = {"lat": round(la, 4), "lng": round(ln, 4), "name": name or "Unknown", "count": 0, "submissions": []}
+                location_groups[key]["count"] += 1
+                location_groups[key]["submissions"].append({"submission_id": sid, "submitted_at": sub_at.isoformat() if sub_at else None})
+            except (ValueError, TypeError):
+                pass
+
+        map_data = [{"lat": g["lat"], "lng": g["lng"], "name": g["name"], "count": g["count"], "submissions": g["submissions"]} for g in location_groups.values()]
         
         return {
             "form_id": form_id,
@@ -4512,40 +4263,14 @@ def get_form_grouped_data(
         
         if not dimension:
             raise HTTPException(status_code=400, detail="dimension is required")
-        
-        # Query submissions
+
         query = db.query(Submission).filter(Submission.form_id == form_id)
-        submissions = query.all()
-        
-        # Apply filters
         if filters:
-            filtered_submissions = []
-            for sub in submissions:
-                try:
-                    if not sub.submission_data or not isinstance(sub.submission_data, dict):
-                        continue
-                    
-                    sub_data = sub.submission_data
-                    matches = True
-                    for field_name, filter_value in filters.items():
-                        if filter_value is None or filter_value == "":
-                            continue
-                        field_value = sub_data.get(field_name)
-                        if isinstance(filter_value, list):
-                            if field_value not in filter_value:
-                                matches = False
-                                break
-                        else:
-                            if str(field_value) != str(filter_value):
-                                matches = False
-                                break
-                    if matches:
-                        filtered_submissions.append(sub)
-                except Exception as e:
-                    logger.warning(f"Error filtering submission {sub.id}: {e}")
-                    continue
-            submissions = filtered_submissions
-        
+            from analysis_service import AnalysisService
+            service = AnalysisService(db)
+            query = _apply_filters_dict(query, service, form, filters)
+        submissions = query.all()
+
         # Group data
         grouped_data = {}
         
@@ -4653,6 +4378,176 @@ async def websocket_form_updates(websocket: WebSocket, form_id: int):
     except Exception as e:
         logger.error(f"WebSocket error: {e}")
         manager.disconnect(websocket, form_id)
+
+
+@app.websocket("/ws/sync/{sync_id}")
+async def websocket_sync_progress(websocket: WebSocket, sync_id: int):
+    """WebSocket endpoint for real-time sync progress updates."""
+    # Verify sync exists
+    db = next(get_db())
+    try:
+        sync_log = db.query(SyncLog).filter(SyncLog.id == sync_id).first()
+        if not sync_log:
+            await websocket.close(code=1008, reason="Sync not found")
+            return
+        
+        # Send initial progress state
+        progress = SyncProgressResponse(
+            sync_id=sync_log.id,
+            status=sync_log.status,
+            current_form_index=sync_log.current_form_index,
+            total_forms=sync_log.total_forms,
+            current_form_id=sync_log.current_form_id,
+            current_form_title=sync_log.current_form_title,
+            current_submission_index=sync_log.current_submission_index,
+            total_submissions=sync_log.total_submissions,
+            progress_percentage=sync_log.progress_percentage,
+            records_added=sync_log.records_added,
+            records_updated=sync_log.records_updated,
+            records_processed=sync_log.records_processed,
+            started_at=sync_log.started_at.isoformat() if sync_log.started_at else None,
+            completed_at=sync_log.completed_at.isoformat() if sync_log.completed_at else None,
+            error_message=sync_log.error_message,
+        )
+        await websocket.send_json(progress.model_dump())
+    finally:
+        db.close()
+    
+    await manager.connect_sync(websocket, sync_id)
+    try:
+        while True:
+            # Keep connection alive - progress updates are sent from ETL pipeline
+            data = await websocket.receive_text()
+            # Echo back
+            await websocket.send_json({"type": "pong", "sync_id": sync_id})
+    except WebSocketDisconnect:
+        manager.disconnect_sync(websocket, sync_id)
+    except Exception as e:
+        logger.error(f"Sync WebSocket error: {e}")
+        manager.disconnect_sync(websocket, sync_id)
+
+
+@app.get("/api/sync/{sync_id}/progress", response_model=SyncProgressResponse)
+def get_sync_progress(
+    sync_id: int,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    """Get sync progress (polling fallback endpoint)."""
+    sync_log = db.query(SyncLog).filter(SyncLog.id == sync_id).first()
+    if not sync_log:
+        raise HTTPException(status_code=404, detail="Sync not found")
+    
+    # Build human-readable message
+    message = None
+    if sync_log.status == "running":
+        if sync_log.total_forms > 1:
+            message = f"Syncing form {sync_log.current_form_index + 1} of {sync_log.total_forms}"
+            if sync_log.current_form_title:
+                message += f": {sync_log.current_form_title}"
+        elif sync_log.total_submissions > 0:
+            message = f"Processing submission {sync_log.current_submission_index} of {sync_log.total_submissions}"
+    elif sync_log.status == "success":
+        message = "Sync completed successfully"
+    elif sync_log.status == "error":
+        message = f"Sync failed: {sync_log.error_message}"
+    
+    return SyncProgressResponse(
+        sync_id=sync_log.id,
+        status=sync_log.status,
+        current_form_index=sync_log.current_form_index,
+        total_forms=sync_log.total_forms,
+        current_form_id=sync_log.current_form_id,
+        current_form_title=sync_log.current_form_title,
+        current_submission_index=sync_log.current_submission_index,
+        total_submissions=sync_log.total_submissions,
+        progress_percentage=sync_log.progress_percentage,
+        records_added=sync_log.records_added,
+        records_updated=sync_log.records_updated,
+        records_processed=sync_log.records_processed,
+        started_at=sync_log.started_at.isoformat() if sync_log.started_at else None,
+        completed_at=sync_log.completed_at.isoformat() if sync_log.completed_at else None,
+        error_message=sync_log.error_message,
+        message=message,
+    )
+
+
+@app.get("/api/sync/{sync_id}/stream")
+async def stream_sync_progress(
+    sync_id: int,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    """Stream sync progress via Server-Sent Events (SSE)."""
+    async def event_generator():
+        last_progress = None
+        while True:
+            try:
+                # Get current progress from database
+                sync_log = db.query(SyncLog).filter(SyncLog.id == sync_id).first()
+                if not sync_log:
+                    yield f"data: {json.dumps({'error': 'Sync not found'})}\n\n"
+                    break
+                
+                # Build progress response
+                message = None
+                if sync_log.status == "running":
+                    if sync_log.total_forms > 1:
+                        message = f"Syncing form {sync_log.current_form_index + 1} of {sync_log.total_forms}"
+                        if sync_log.current_form_title:
+                            message += f": {sync_log.current_form_title}"
+                    elif sync_log.total_submissions > 0:
+                        message = f"Processing submission {sync_log.current_submission_index} of {sync_log.total_submissions}"
+                elif sync_log.status == "success":
+                    message = "Sync completed successfully"
+                elif sync_log.status == "error":
+                    message = f"Sync failed: {sync_log.error_message}"
+                
+                progress = {
+                    "sync_id": sync_log.id,
+                    "status": sync_log.status,
+                    "current_form_index": sync_log.current_form_index,
+                    "total_forms": sync_log.total_forms,
+                    "current_form_id": sync_log.current_form_id,
+                    "current_form_title": sync_log.current_form_title,
+                    "current_submission_index": sync_log.current_submission_index,
+                    "total_submissions": sync_log.total_submissions,
+                    "progress_percentage": sync_log.progress_percentage,
+                    "records_added": sync_log.records_added,
+                    "records_updated": sync_log.records_updated,
+                    "records_processed": sync_log.records_processed,
+                    "started_at": sync_log.started_at.isoformat() if sync_log.started_at else None,
+                    "completed_at": sync_log.completed_at.isoformat() if sync_log.completed_at else None,
+                    "error_message": sync_log.error_message,
+                    "message": message,
+                }
+                
+                # Only send if progress changed
+                if progress != last_progress:
+                    yield f"data: {json.dumps(progress)}\n\n"
+                    last_progress = progress
+                
+                # Stop if sync is complete
+                if sync_log.status in ["success", "error"]:
+                    break
+                
+                # Wait before next update
+                await asyncio.sleep(1)  # Update every second
+                
+            except Exception as e:
+                logger.error(f"SSE stream error: {e}")
+                yield f"data: {json.dumps({'error': str(e)})}\n\n"
+                break
+    
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",  # Disable buffering for nginx
+        }
+    )
 
 
 # ============================================================================

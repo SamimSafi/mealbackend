@@ -39,6 +39,18 @@ def test_extract_location(db):
     assert lat == 40.7128
     assert lng == -74.0060
 
+    # Test manual geopoint: gps_location string (same format as start-geopoint)
+    submission3 = {"info/gps_location": "34.480949 69.131318 0 0"}
+    lat, lng, name = etl.extract_location(submission3)
+    assert lat == 34.480949
+    assert lng == 69.131318
+
+    # Test manual geopoint: gps_location as list [lat, lng]
+    submission4 = {"gps_location": [34.5, 69.2]}
+    lat, lng, name = etl.extract_location(submission4)
+    assert lat == 34.5
+    assert lng == 69.2
+
 
 @patch("etl.KoboClient")
 def test_sync_form(mock_kobo_client, db):

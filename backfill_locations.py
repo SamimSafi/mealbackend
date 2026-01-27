@@ -1,4 +1,6 @@
-"""Script to backfill province/district from form data and location_name from GPS."""
+"""Script to backfill province/district from form data and location_name from GPS.
+Reads location_lat/location_lng from the database (saved at sync from start-geopoint)
+and reverse geocodes them; no Kobo or sync needed. Run after sync."""
 import sys
 from pathlib import Path
 
@@ -79,38 +81,39 @@ def backfill_locations(limit: int = None, force: bool = False):
                     cleaned_data["district"] = form_district
                     logger.info(f"  -> District from form: {form_district}")
             
-            # 2. Reverse geocode GPS coordinates for location_name
+            # 2. Reverse geocode GPS (Nominatim can be wrong, e.g. Sholgara vs Khoshal Khan Kabul)
             gps_province, gps_detailed_location = etl.reverse_geocode(
                 submission.location_lat, submission.location_lng
             )
-            
-            if gps_detailed_location or gps_province:
-                # Use detailed GPS location directly
-                if gps_detailed_location:
-                    submission.location_name = gps_detailed_location
-                elif gps_province:
-                    submission.location_name = gps_province
-                
-                # Store GPS-resolved values in cleaned_data for reference
-                if gps_province:
-                    cleaned_data["gps_resolved_province"] = gps_province
-                if gps_detailed_location:
-                    cleaned_data["gps_resolved_location"] = gps_detailed_location
-                
+            if gps_province:
+                cleaned_data["gps_resolved_province"] = gps_province
+            if gps_detailed_location:
+                cleaned_data["gps_resolved_location"] = gps_detailed_location
+
+            # Survey accuracy: compare form province vs GPS (from start-geopoint or manual gps_location) to detect wrong surveys
+            gps_consistent, survey_warning = etl._compute_gps_consistent(submission.province, gps_province)
+            cleaned_data["gps_consistent"] = gps_consistent
+            if survey_warning:
+                cleaned_data["survey_location_warning"] = survey_warning
+
+            # Prefer form-based location over GPS for display; use GPS only when form has nothing
+            form_place = etl.extract_form_place_name(submission_data, cleaned_data)
+            form_loc = ", ".join(p for p in (submission.district, submission.province) if p) if (submission.district or submission.province) else None
+            if form_place:
+                submission.location_name = form_place
+                logger.info(f"  -> Location name (form place): {submission.location_name}")
+                updated_count += 1
+            elif form_loc:
+                submission.location_name = form_loc
+                logger.info(f"  -> Location name (form province/district): {submission.location_name}")
+                updated_count += 1
+            elif gps_detailed_location or gps_province:
+                submission.location_name = gps_detailed_location or gps_province
                 logger.info(f"  -> Location name (GPS): {submission.location_name}")
                 updated_count += 1
             else:
-                logger.warning(f"  -> No GPS data for: {submission.location_lat}, {submission.location_lng}")
-                
-                # Fallback: use form data for location_name if no GPS resolved
-                if not submission.location_name:
-                    if submission.province and submission.district:
-                        submission.location_name = f"{submission.district}, {submission.province}"
-                    elif submission.province:
-                        submission.location_name = submission.province
-                    elif submission.district:
-                        submission.location_name = submission.district
-            
+                logger.warning(f"  -> No location for: {submission.location_lat}, {submission.location_lng}")
+
             submission.cleaned_data = cleaned_data
             
             # Commit every 10 records

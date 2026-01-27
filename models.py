@@ -168,7 +168,7 @@ class Submission(Base):
     submitted_at = Column(DateTime, nullable=True)
     location_lat = Column(Float, nullable=True)
     location_lng = Column(Float, nullable=True)
-    location_name = Column(String(500), nullable=True)  # GPS-resolved location from reverse geocoding
+    location_name = Column(String(500), nullable=True)  # From form (province/district) at sync; or from reverse geocoding of location_lat/lng via backfill_locations or POST /api/submissions/geocode-pending
     # Province/District from form data (user input)
     province = Column(String(255), nullable=True, index=True)
     district = Column(String(255), nullable=True, index=True)
@@ -209,13 +209,22 @@ class SyncLog(Base):
     id = Column(Integer, primary_key=True, index=True)
     form_id = Column(Integer, ForeignKey("forms.id"), nullable=True)
     sync_type = Column(String(50), nullable=False)  # e.g., "full", "incremental", "webhook"
-    status = Column(String(20), nullable=False)  # e.g., "success", "error", "partial"
+    status = Column(String(20), nullable=False)  # e.g., "running", "success", "error", "partial"
     records_processed = Column(Integer, default=0, nullable=False)
     records_added = Column(Integer, default=0, nullable=False)
     records_updated = Column(Integer, default=0, nullable=False)
     error_message = Column(Text, nullable=True)
     started_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     completed_at = Column(DateTime, nullable=True)
+    
+    # Progress tracking fields for real-time updates
+    current_form_index = Column(Integer, default=0, nullable=False)  # Which form is being synced (0-based)
+    total_forms = Column(Integer, default=0, nullable=False)  # Total forms to sync
+    current_submission_index = Column(Integer, default=0, nullable=False)  # Current submission being processed
+    total_submissions = Column(Integer, default=0, nullable=False)  # Total submissions in current form
+    current_form_id = Column(Integer, nullable=True)  # ID of form currently being synced
+    current_form_title = Column(String(500), nullable=True)  # Title of current form
+    progress_percentage = Column(Float, default=0.0, nullable=False)  # 0-100 percentage
 
 
 class KPIDefinition(Base):
