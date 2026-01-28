@@ -13,6 +13,7 @@ from sqlalchemy import func
 from models import Form as FormModel, Submission, KPIValue, ReportCache, FormFieldMapping
 from report_filters import FilterContext, LocationFilter, AggregationHelper, get_nested_field_value
 from kpi_engine import KPIEngine
+from etl import ETLPipeline
 
 logger = logging.getLogger(__name__)
 
@@ -225,8 +226,12 @@ class ReportService:
                 "coverage": {},
                 "bounds": {},
             }
-        
+
         form_ids = form_id and [form_id] or list(set([s.form_id for s in submissions]))
+        form_ids_set = set(form_ids)
+        forms = {f.id: f for f in self.db.query(FormModel).filter(FormModel.id.in_(form_ids_set)).all()}
+        etl_pipe = ETLPipeline(self.db)
+        choice_mappings = {fid: etl_pipe.build_choice_mapping(forms[fid]) for fid in form_ids_set if fid in forms}
         
         if not location_field and form_ids:
             mapping = self.db.query(FormFieldMapping).filter(FormFieldMapping.form_id == form_ids[0]).first()
@@ -241,11 +246,16 @@ class ReportService:
             if sub.location_lat and sub.location_lng:
                 key = (sub.location_lat, sub.location_lng)
                 if key not in location_submissions:
+                    # Resolve province/district choice codes (p1, d1) to labels (Kabul, District 1) for display
+                    cm = choice_mappings.get(sub.form_id) or {}
+                    rp = ETLPipeline._resolve_choice_code(sub.province, cm) or sub.province
+                    rd = ETLPipeline._resolve_choice_code(sub.district, cm) or sub.district
+                    loc_name = ", ".join(x for x in [rd, rp] if x) if (rd or rp) else sub.location_name
                     location_submissions[key] = {
                         "submissions": [],
                         "lat": sub.location_lat,
                         "lng": sub.location_lng,
-                        "location_name": sub.location_name,
+                        "location_name": loc_name,
                     }
                 location_submissions[key]["submissions"].append(sub.id)
         

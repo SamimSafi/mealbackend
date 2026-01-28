@@ -129,9 +129,42 @@ class FormResponse(FormBase):
     created_at: datetime
     updated_at: datetime
     submission_count: Optional[int] = None
+    # From FormFieldMapping: which form fields map to Submission.province/district (for ETL/backfill)
+    province_field: Optional[str] = None
+    district_field: Optional[str] = None
 
     class Config:
         from_attributes = True
+
+
+class FormFieldMappingResponse(BaseModel):
+    """Form field mapping (which form fields → province, district, age, gender, etc.)."""
+
+    id: int
+    form_id: int
+    age_field: Optional[str] = None
+    gender_field: Optional[str] = None
+    household_size_field: Optional[str] = None
+    location_field: Optional[str] = None
+    province_field: Optional[str] = None
+    district_field: Optional[str] = None
+    custom_mappings: Optional[dict] = None
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class FormFieldMappingUpdate(BaseModel):
+    """Update form field mapping (e.g. province/district columns for this form)."""
+
+    province_field: Optional[str] = None
+    district_field: Optional[str] = None
+    age_field: Optional[str] = None
+    gender_field: Optional[str] = None
+    household_size_field: Optional[str] = None
+    location_field: Optional[str] = None
 
 
 # Submission Schemas

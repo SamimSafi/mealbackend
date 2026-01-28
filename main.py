@@ -41,6 +41,8 @@ from schemas import (
     Token,
     LoginRequest,
     FormResponse,
+    FormFieldMappingResponse,
+    FormFieldMappingUpdate,
     SubmissionResponse,
     IndicatorResponse,
     DashboardSummary,
@@ -96,6 +98,7 @@ from dynamic_field_detector import (
 )
 from auth import (
     get_current_active_user,
+    get_current_user_for_sse,
     get_password_hash,
     create_access_token,
     verify_password,
@@ -109,12 +112,13 @@ from datetime import datetime, timedelta, date as date_type
 from typing import Optional, Any
 import asyncio
 import threading
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, JSONResponse
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+import sync_progress_store
 from discover import discover_router
 from analysis import router as analysis_router
 from report_service import ReportService
@@ -1007,7 +1011,57 @@ def get_form(
         .filter(Submission.form_id == form.id)
         .scalar(),
     }
+    mapping = db.query(FormFieldMapping).filter(FormFieldMapping.form_id == form.id).first()
+    form_dict["province_field"] = (mapping.province_field or None) if mapping else None
+    form_dict["district_field"] = (mapping.district_field or None) if mapping else None
     return FormResponse(**form_dict)
+
+
+@app.get("/api/forms/{form_id}/field-mapping", response_model=FormFieldMappingResponse)
+def get_form_field_mapping(
+    form_id: int,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    """Get field mapping for a form (which form fields → province, district, age, gender, etc.)."""
+    form = db.query(FormModel).filter(FormModel.id == form_id).first()
+    if not form:
+        raise HTTPException(status_code=404, detail="Form not found")
+    if not check_form_access(current_user, form_id, db):
+        raise HTTPException(status_code=403, detail="Access denied to this form")
+    mapping = db.query(FormFieldMapping).filter(FormFieldMapping.form_id == form_id).first()
+    if not mapping:
+        raise HTTPException(status_code=404, detail="No field mapping for this form. Use PATCH to create one.")
+    return FormFieldMappingResponse.model_validate(mapping)
+
+
+@app.patch("/api/forms/{form_id}/field-mapping", response_model=FormFieldMappingResponse)
+def update_form_field_mapping(
+    form_id: int,
+    body: FormFieldMappingUpdate,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    """Set which form fields map to province and district (and optionally age, gender, etc.).
+    Used by ETL sync and backfill to fill Submission.province and Submission.district from
+    the correct columns in submission_data/cleaned_data for each form."""
+    form = db.query(FormModel).filter(FormModel.id == form_id).first()
+    if not form:
+        raise HTTPException(status_code=404, detail="Form not found")
+    if not check_form_access(current_user, form_id, db):
+        raise HTTPException(status_code=403, detail="Access denied to this form")
+    mapping = db.query(FormFieldMapping).filter(FormFieldMapping.form_id == form_id).first()
+    if not mapping:
+        mapping = FormFieldMapping(form_id=form_id)
+        db.add(mapping)
+        db.flush()
+    u = body.model_dump(exclude_unset=True)
+    for k in ("province_field", "district_field", "age_field", "gender_field", "household_size_field", "location_field"):
+        if k in u:
+            setattr(mapping, k, u[k])
+    db.commit()
+    db.refresh(mapping)
+    return FormFieldMappingResponse.model_validate(mapping)
 
 
 # ============================================================================
@@ -2894,6 +2948,8 @@ def run_sync_in_background(sync_log_id: int, form_id: Optional[int], sync_type: 
         if not sync_log:
             logger.error(f"Sync log {sync_log_id} not found")
             return
+
+        sync_progress_store.set(sync_log.id, sync_progress_store.from_sync_log(sync_log))
         
         try:
             if form_id:
@@ -2904,6 +2960,7 @@ def run_sync_in_background(sync_log_id: int, form_id: Optional[int], sync_type: 
                     sync_log.error_message = "Form not found"
                     sync_log.completed_at = datetime.utcnow()
                     db.commit()
+                    sync_progress_store.set(sync_log.id, sync_progress_store.from_sync_log(sync_log))
                     return
                 etl.sync_form(form.kobo_form_id, sync_type=sync_type, sync_log=sync_log)
             else:
@@ -2929,6 +2986,7 @@ def run_sync_in_background(sync_log_id: int, form_id: Optional[int], sync_type: 
             sync_log.error_message = str(e)
             sync_log.completed_at = datetime.utcnow()
             db.commit()
+            sync_progress_store.set(sync_log.id, sync_progress_store.from_sync_log(sync_log))
     finally:
         db.close()
 
@@ -2961,6 +3019,9 @@ def sync_forms(
             form_id = form.id
         
         db.commit()
+
+        # In-memory progress: allow SSE/polling/WS to read before first ETL update
+        sync_progress_store.set(sync_log.id, sync_progress_store.from_sync_log(sync_log))
         
         # Run sync in a daemon thread so the worker is not blocked (fixes form 2+ POST timing out when form 1 sync is still running)
         threading.Thread(
@@ -4391,33 +4452,39 @@ if _websockets_enabled():
 
     @app.websocket("/ws/sync/{sync_id}")
     async def websocket_sync_progress(websocket: WebSocket, sync_id: int):
-        """WebSocket endpoint for real-time sync progress updates."""
-        db = next(get_db())
-        try:
-            sync_log = db.query(SyncLog).filter(SyncLog.id == sync_id).first()
-            if not sync_log:
-                await websocket.close(code=1008, reason="Sync not found")
-                return
-            progress = SyncProgressResponse(
-                sync_id=sync_log.id,
-                status=sync_log.status,
-                current_form_index=sync_log.current_form_index,
-                total_forms=sync_log.total_forms,
-                current_form_id=sync_log.current_form_id,
-                current_form_title=sync_log.current_form_title,
-                current_submission_index=sync_log.current_submission_index,
-                total_submissions=sync_log.total_submissions,
-                progress_percentage=sync_log.progress_percentage,
-                records_added=sync_log.records_added,
-                records_updated=sync_log.records_updated,
-                records_processed=sync_log.records_processed,
-                started_at=sync_log.started_at.isoformat() if sync_log.started_at else None,
-                completed_at=sync_log.completed_at.isoformat() if sync_log.completed_at else None,
-                error_message=sync_log.error_message,
-            )
+        """WebSocket endpoint for real-time sync progress updates. Reads in-memory store first."""
+        d = sync_progress_store.get(sync_id)
+        if d is not None:
+            progress = SyncProgressResponse(**{k: v for k, v in d.items() if k in SyncProgressResponse.model_fields})
             await websocket.send_json(progress.model_dump())
-        finally:
-            db.close()
+        else:
+            db = next(get_db())
+            try:
+                sync_log = db.query(SyncLog).filter(SyncLog.id == sync_id).first()
+                if not sync_log:
+                    await websocket.close(code=1008, reason="Sync not found")
+                    return
+                progress = SyncProgressResponse(
+                    sync_id=sync_log.id,
+                    status=sync_log.status,
+                    current_form_index=sync_log.current_form_index or 0,
+                    total_forms=sync_log.total_forms or 0,
+                    current_form_id=sync_log.current_form_id,
+                    current_form_title=sync_log.current_form_title,
+                    current_submission_index=sync_log.current_submission_index or 0,
+                    total_submissions=sync_log.total_submissions or 0,
+                    progress_percentage=float(sync_log.progress_percentage or 0),
+                    records_added=sync_log.records_added or 0,
+                    records_updated=sync_log.records_updated or 0,
+                    records_processed=sync_log.records_processed or 0,
+                    started_at=sync_log.started_at.isoformat() if sync_log.started_at else None,
+                    completed_at=sync_log.completed_at.isoformat() if sync_log.completed_at else None,
+                    error_message=sync_log.error_message,
+                    message=None,
+                )
+                await websocket.send_json(progress.model_dump())
+            finally:
+                db.close()
         await manager.connect_sync(websocket, sync_id)
         try:
             while True:
@@ -4433,41 +4500,41 @@ if _websockets_enabled():
 @app.get("/api/sync/{sync_id}/progress", response_model=SyncProgressResponse)
 def get_sync_progress(
     sync_id: int,
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_user_for_sse),
     db: Session = Depends(get_db),
 ):
-    """Get sync progress (polling fallback endpoint)."""
+    """Get sync progress (polling). Reads in-memory store first, else DB. Auth: Bearer or ?token=."""
+    d = sync_progress_store.get(sync_id)
+    if d is not None:
+        return SyncProgressResponse(**{k: v for k, v in d.items() if k in SyncProgressResponse.model_fields})
     sync_log = db.query(SyncLog).filter(SyncLog.id == sync_id).first()
     if not sync_log:
         raise HTTPException(status_code=404, detail="Sync not found")
-    
-    # Build human-readable message
     message = None
     if sync_log.status == "running":
-        if sync_log.total_forms > 1:
+        if sync_log.total_forms and sync_log.total_forms > 1:
             message = f"Syncing form {sync_log.current_form_index + 1} of {sync_log.total_forms}"
             if sync_log.current_form_title:
                 message += f": {sync_log.current_form_title}"
-        elif sync_log.total_submissions > 0:
+        elif sync_log.total_submissions and sync_log.total_submissions > 0:
             message = f"Processing submission {sync_log.current_submission_index} of {sync_log.total_submissions}"
     elif sync_log.status == "success":
         message = "Sync completed successfully"
     elif sync_log.status == "error":
         message = f"Sync failed: {sync_log.error_message}"
-    
     return SyncProgressResponse(
         sync_id=sync_log.id,
         status=sync_log.status,
-        current_form_index=sync_log.current_form_index,
-        total_forms=sync_log.total_forms,
+        current_form_index=sync_log.current_form_index or 0,
+        total_forms=sync_log.total_forms or 0,
         current_form_id=sync_log.current_form_id,
         current_form_title=sync_log.current_form_title,
-        current_submission_index=sync_log.current_submission_index,
-        total_submissions=sync_log.total_submissions,
-        progress_percentage=sync_log.progress_percentage,
-        records_added=sync_log.records_added,
-        records_updated=sync_log.records_updated,
-        records_processed=sync_log.records_processed,
+        current_submission_index=sync_log.current_submission_index or 0,
+        total_submissions=sync_log.total_submissions or 0,
+        progress_percentage=float(sync_log.progress_percentage or 0),
+        records_added=sync_log.records_added or 0,
+        records_updated=sync_log.records_updated or 0,
+        records_processed=sync_log.records_processed or 0,
         started_at=sync_log.started_at.isoformat() if sync_log.started_at else None,
         completed_at=sync_log.completed_at.isoformat() if sync_log.completed_at else None,
         error_message=sync_log.error_message,
@@ -4475,77 +4542,127 @@ def get_sync_progress(
     )
 
 
+def _get_sync_state(sync_id: int) -> str:
+    """'not_found' | 'active' | 'finished'. Used by SSE to return 409 NO_ACTIVE_SYNC when not running."""
+    d = sync_progress_store.get(sync_id)
+    if d and d.get("status") == "running":
+        return "active"
+    if d and d.get("status") in ("success", "error"):
+        return "finished"
+    db = SessionLocal()
+    try:
+        row = db.query(SyncLog).filter(SyncLog.id == sync_id).first()
+        if not row:
+            return "not_found"
+        if row.status == "running":
+            return "active"
+        return "finished"
+    finally:
+        db.close()
+
+
+def _fetch_sync_progress_row(sync_id: int) -> Optional[dict]:
+    """Read from in-memory store first, else SyncLog. Returns a plain dict. Runs in thread for async."""
+    d = sync_progress_store.get(sync_id)
+    if d is not None:
+        return d
+    db = SessionLocal()
+    try:
+        row = db.query(SyncLog).filter(SyncLog.id == sync_id).first()
+        if not row:
+            return None
+        return {
+            "sync_id": row.id,
+            "status": row.status,
+            "current_form_index": row.current_form_index,
+            "total_forms": row.total_forms,
+            "current_form_id": row.current_form_id,
+            "current_form_title": row.current_form_title,
+            "current_submission_index": row.current_submission_index,
+            "total_submissions": row.total_submissions,
+            "progress_percentage": float(row.progress_percentage or 0),
+            "records_added": row.records_added or 0,
+            "records_updated": row.records_updated or 0,
+            "records_processed": row.records_processed or 0,
+            "started_at": row.started_at.isoformat() if row.started_at else None,
+            "completed_at": row.completed_at.isoformat() if row.completed_at else None,
+            "error_message": row.error_message,
+        }
+    finally:
+        db.close()
+
+
 @app.get("/api/sync/{sync_id}/stream")
 async def stream_sync_progress(
     sync_id: int,
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_user_for_sse),
 ):
-    """Stream sync progress via Server-Sent Events (SSE). Uses a fresh DB session per tick to avoid long-lived connection issues when WebSockets are disabled (e.g. PythonAnywhere free)."""
+    """Stream sync progress via SSE. On restricted hosts (ENABLE_WEBSOCKETS=0): 409 SSE_DISABLED immediately so frontend uses polling—avoids long pending and 504."""
+    # Free/restricted hosts: don't open the stream; return 409 so frontend switches to polling right away (no long pending, no 504)
+    if not _websockets_enabled():
+        return JSONResponse(status_code=409, content={"code": "SSE_DISABLED", "message": f"Use GET /api/sync/{sync_id}/progress"})
+    state = _get_sync_state(sync_id)
+    if state == "not_found":
+        raise HTTPException(status_code=404, detail="Sync not found")
+    if state == "finished":
+        return JSONResponse(status_code=409, content={"code": "NO_ACTIVE_SYNC", "message": "No active sync for this id"})
+
     async def event_generator():
+        # Send immediately so the client and proxy see the stream as started (avoids "pending")
+        yield ": ok\n\n"
         last_progress = None
+        iter_count = 0
         while True:
-            db = SessionLocal()
             try:
-                sync_log = db.query(SyncLog).filter(SyncLog.id == sync_id).first()
-                if not sync_log:
-                    yield f"data: {json.dumps({'error': 'Sync not found'})}\n\n"
-                    break
-
-                message = None
-                if sync_log.status == "running":
-                    if sync_log.total_forms > 1:
-                        message = f"Syncing form {sync_log.current_form_index + 1} of {sync_log.total_forms}"
-                        if sync_log.current_form_title:
-                            message += f": {sync_log.current_form_title}"
-                    elif sync_log.total_submissions > 0:
-                        message = f"Processing submission {sync_log.current_submission_index} of {sync_log.total_submissions}"
-                elif sync_log.status == "success":
-                    message = "Sync completed successfully"
-                elif sync_log.status == "error":
-                    message = f"Sync failed: {sync_log.error_message}"
-
-                progress = {
-                    "sync_id": sync_log.id,
-                    "status": sync_log.status,
-                    "current_form_index": sync_log.current_form_index,
-                    "total_forms": sync_log.total_forms,
-                    "current_form_id": sync_log.current_form_id,
-                    "current_form_title": sync_log.current_form_title,
-                    "current_submission_index": sync_log.current_submission_index,
-                    "total_submissions": sync_log.total_submissions,
-                    "progress_percentage": sync_log.progress_percentage,
-                    "records_added": sync_log.records_added,
-                    "records_updated": sync_log.records_updated,
-                    "records_processed": sync_log.records_processed,
-                    "started_at": sync_log.started_at.isoformat() if sync_log.started_at else None,
-                    "completed_at": sync_log.completed_at.isoformat() if sync_log.completed_at else None,
-                    "error_message": sync_log.error_message,
-                    "message": message,
-                }
-
-                if progress != last_progress:
-                    yield f"data: {json.dumps(progress)}\n\n"
-                    last_progress = progress
-
-                if sync_log.status in ["success", "error"]:
-                    break
+                # Run DB in thread: avoids blocking the event loop (hosted workers often stall otherwise).
+                # asyncio.to_thread is 3.9+; use run_in_executor on 3.8.
+                to_thread = getattr(asyncio, "to_thread", None)
+                if to_thread is not None:
+                    result = await to_thread(_fetch_sync_progress_row, sync_id)
+                else:
+                    loop = asyncio.get_running_loop()
+                    result = await loop.run_in_executor(None, lambda: _fetch_sync_progress_row(sync_id))
             except Exception as e:
                 logger.error(f"SSE stream error: {e}")
                 yield f"data: {json.dumps({'error': str(e)})}\n\n"
                 break
-            finally:
-                db.close()
+            iter_count += 1
+            if result is None:
+                yield f"data: {json.dumps({'error': 'Sync not found'})}\n\n"
+                break
+            message = None
+            if result["status"] == "running":
+                if (result.get("total_forms") or 0) > 1:
+                    message = f"Syncing form {result['current_form_index'] + 1} of {result['total_forms']}"
+                    if result.get("current_form_title"):
+                        message += f": {result['current_form_title']}"
+                elif (result.get("total_submissions") or 0) > 0:
+                    message = f"Processing submission {result['current_submission_index']} of {result['total_submissions']}"
+            elif result["status"] == "success":
+                message = "Sync completed successfully"
+            elif result["status"] == "error":
+                message = f"Sync failed: {result.get('error_message') or ''}"
+            progress = {**result, "message": message}
+            if progress != last_progress:
+                yield f"data: {json.dumps(progress)}\n\n"
+                last_progress = progress
+            if result["status"] in ["success", "error"]:
+                break
+            # Heartbeat every ~18s when running to prevent proxy/host idle timeout
+            if iter_count % 45 == 0 and result.get("status") == "running":
+                yield ": heartbeat\n\n"
+            wait = 0.4 if result.get("status") == "running" else 1
+            await asyncio.sleep(wait)
 
-            await asyncio.sleep(1)
-    
     return StreamingResponse(
         event_generator(),
-        media_type="text/event-stream",
+        media_type="text/event-stream; charset=utf-8",
         headers={
-            "Cache-Control": "no-cache",
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Pragma": "no-cache",
             "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",  # Disable buffering for nginx
-        }
+            "X-Accel-Buffering": "no",
+        },
     )
 
 

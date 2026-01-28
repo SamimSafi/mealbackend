@@ -63,12 +63,16 @@ def setup_mappings():
         gender_field = input("  Gender field (e.g., 'demographics/gender'): ").strip() or None
         hh_size_field = input("  Household size field (e.g., 'beneficiary/hh_size'): ").strip() or None
         location_field = input("  Location field (e.g., 'location/district'): ").strip() or None
+        province_field = input("  Province field (e.g., 'info/province', 'info/wilayat'): ").strip() or None
+        district_field = input("  District field (e.g., 'info/district', 'info/wuleswali'): ").strip() or None
         
         if existing_mapping:
             existing_mapping.age_field = age_field or existing_mapping.age_field
             existing_mapping.gender_field = gender_field or existing_mapping.gender_field
             existing_mapping.household_size_field = hh_size_field or existing_mapping.household_size_field
             existing_mapping.location_field = location_field or existing_mapping.location_field
+            existing_mapping.province_field = province_field or existing_mapping.province_field
+            existing_mapping.district_field = district_field or existing_mapping.district_field
             db.commit()
             print("✓ Mapping updated")
         else:
@@ -78,6 +82,8 @@ def setup_mappings():
                 gender_field=gender_field,
                 household_size_field=hh_size_field,
                 location_field=location_field,
+                province_field=province_field,
+                district_field=district_field,
             )
             db.add(mapping)
             db.commit()

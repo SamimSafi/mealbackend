@@ -10,7 +10,8 @@ import pandas as pd
 from sqlalchemy.orm import Session
 
 from kobo_client import KoboClient
-from models import Form, Indicator, Submission, SyncLog, RawSubmission
+from models import Form, FormFieldMapping, Indicator, Submission, SyncLog, RawSubmission
+from dynamic_field_detector import detect_province_district_fields_for_form
 
 logger = logging.getLogger(__name__)
 
@@ -67,25 +68,75 @@ class ETLPipeline:
         
         return mapping
 
+    @staticmethod
+    def _resolve_choice_code(value: Optional[str], choice_mapping: dict) -> Optional[str]:
+        """If value is a choice code in any list, return the label; else None."""
+        if not value or not isinstance(value, str) or not value.strip():
+            return None
+        v = value.strip()
+        vl = v.lower()
+        for codes_to_labels in (choice_mapping or {}).values():
+            if not isinstance(codes_to_labels, dict):
+                continue
+            if v in codes_to_labels:
+                return codes_to_labels[v]
+            if vl in codes_to_labels:
+                return codes_to_labels[vl]
+            for code, label in codes_to_labels.items():
+                if isinstance(code, str) and code.lower() == vl:
+                    return label
+        return None
+
     def decode_submission_choices(self, submission: dict[str, Any], choice_mapping: dict[str, dict[str, str]]) -> dict[str, Any]:
         """
         Decode choice codes to human-readable labels using choice mapping.
-        Modifies submission dict in-place with decoded values.
+        Modifies submission dict in-place. Recurses into nested dicts so that
+        province/district in e.g. info.province / info.district are decoded.
         """
-        for field_name, value in list(submission.items()):
-            if value is None or value == "":
-                continue
-            
-            if isinstance(value, str):
-                value_lower = value.lower().strip()
-                
-                for list_name, codes_to_labels in choice_mapping.items():
-                    if value_lower in codes_to_labels or value in codes_to_labels:
-                        decoded = codes_to_labels.get(value) or codes_to_labels.get(value_lower)
-                        if decoded:
-                            submission[field_name] = decoded
-                            break
-        
+
+        def _is_geopoint_like(d: Any) -> bool:
+            if not isinstance(d, dict):
+                return False
+            ks = set(d.keys())
+            return ks <= {"lat", "latitude", "lon", "lng", "longitude", "alt", "accuracy"} and any(
+                x in ks for x in ("lat", "latitude")
+            ) and any(x in ks for x in ("lon", "lng", "longitude"))
+
+        def _decode_value(val: Any) -> Optional[str]:
+            if not isinstance(val, str) or not val.strip():
+                return None
+            v = val.strip()
+            vl = v.lower()
+            for codes_to_labels in choice_mapping.values():
+                if v in codes_to_labels:
+                    return codes_to_labels[v]
+                if vl in codes_to_labels:
+                    return codes_to_labels[vl]
+                for code, label in codes_to_labels.items():
+                    if (isinstance(code, str) and code.lower() == vl):
+                        return label
+            return None
+
+        def _recurse(d: Any) -> None:
+            if not isinstance(d, dict):
+                return
+            for k, v in list(d.items()):
+                if isinstance(v, str):
+                    dec = _decode_value(v)
+                    if dec is not None:
+                        d[k] = dec
+                elif isinstance(v, dict) and not _is_geopoint_like(v):
+                    _recurse(v)
+                elif isinstance(v, list):
+                    for i, it in enumerate(v):
+                        if isinstance(it, str):
+                            dec = _decode_value(it)
+                            if dec is not None:
+                                v[i] = dec
+                        elif isinstance(it, dict):
+                            _recurse(it)
+
+        _recurse(submission)
         return submission
 
     def clean_submission_data(self, submission: dict[str, Any], form: Optional[Form] = None) -> dict[str, Any]:
@@ -422,74 +473,164 @@ class ETLPipeline:
 
         return lat, lng, location_name
 
-    def extract_province_district_from_data(self, submission_data: dict[str, Any], cleaned_data: dict[str, Any]) -> tuple[Optional[str], Optional[str]]:
+    def _get_value_for_path(
+        self,
+        submission_data: dict[str, Any],
+        cleaned_data: dict[str, Any],
+        path: str,
+    ) -> Optional[str]:
+        """
+        Get a string value by schema-style path (e.g. info/province). Tries: effective
+        submission (direct + nested), cleaned_data direct, and cleaned_data with '/'→'_'.
+        """
+        if not path or not path.strip():
+            return None
+        effective = self._get_effective_submission_payload(submission_data) if submission_data else {}
+        # 1) Direct key in effective (Kobo flat "info/province")
+        if path in effective and effective[path] not in (None, ""):
+            v = effective[path]
+            return str(v).strip() if v is not None else None
+        # 2) Nested path in effective (e.g. info → province)
+        v = self._get_by_path(effective, path)
+        if v is not None and v != "":
+            return str(v).strip()
+        # 3) Direct in cleaned_data
+        if path in cleaned_data and cleaned_data[path] not in (None, ""):
+            return str(cleaned_data[path]).strip()
+        # 4) Flattened key in cleaned_data (info/province → info_province)
+        alt = path.replace("/", "_")
+        if alt in cleaned_data and cleaned_data[alt] not in (None, ""):
+            return str(cleaned_data[alt]).strip()
+        return None
+
+    def extract_province_district_from_data(
+        self,
+        submission_data: dict[str, Any],
+        cleaned_data: dict[str, Any],
+        *,
+        province_field: Optional[str] = None,
+        district_field: Optional[str] = None,
+    ) -> tuple[Optional[str], Optional[str]]:
         """
         Extract province and district from form data (user input).
-        Searches both raw submission data and cleaned data for common field patterns.
+        Uses form-specific province_field/district_field when provided (from
+        detect_province_district_fields_for_form); otherwise falls back to common
+        field names. Handles different column names per form (e.g. wilayat,
+        info/province, location/province_name).
         """
-        province = None
-        district = None
-        
-        # Common field names for province (check both raw and cleaned data)
-        province_fields = [
-            "province", "Province", "info/province", "location/province",
+        province: Optional[str] = None
+        district: Optional[str] = None
+
+        # 1) Form-specific detected fields first
+        if province_field:
+            province = self._get_value_for_path(submission_data, cleaned_data, province_field)
+        if district_field:
+            district = self._get_value_for_path(submission_data, cleaned_data, district_field)
+
+        # 2) Fallback: common field names, including _province, _district, xxx/province, xxx/district
+        province_fallbacks = [
+            "province", "Province", "_province", "info/province", "location/province", "group/province",
             "state", "region", "admin1", "adm1", "governorate",
-            "e5w_province", "sls_province", "beneficiary/province"
+            "e5w_province", "sls_province", "beneficiary/province",
         ]
-        
-        # Common field names for district
-        district_fields = [
-            "district", "District", "info/district", "location/district",
+        district_fallbacks = [
+            "district", "District", "_district", "info/district", "location/district", "group/district",
             "county", "municipality", "admin2", "adm2", "city", "town",
-            "e5w_district", "sls_district", "beneficiary/district"
+            "e5w_district", "sls_district", "beneficiary/district",
         ]
-        
-        # Search for province in both data sources
-        for field in province_fields:
-            # Check cleaned_data first (has flattened keys)
-            if field in cleaned_data and cleaned_data[field]:
-                province = str(cleaned_data[field]).strip()
-                break
-            # Check raw submission data
-            if field in submission_data and submission_data[field]:
-                province = str(submission_data[field]).strip()
-                break
-            # Check nested paths in raw data (e.g., "info/province")
-            if "/" in field:
-                parts = field.split("/")
-                value = submission_data
-                for part in parts:
-                    if isinstance(value, dict) and part in value:
-                        value = value[part]
-                    else:
-                        value = None
-                        break
-                if value:
-                    province = str(value).strip()
+
+        if not province:
+            for field in province_fallbacks:
+                v = self._get_value_for_path(submission_data, cleaned_data, field)
+                if v:
+                    province = v
                     break
-        
-        # Search for district in both data sources
-        for field in district_fields:
-            if field in cleaned_data and cleaned_data[field]:
-                district = str(cleaned_data[field]).strip()
-                break
-            if field in submission_data and submission_data[field]:
-                district = str(submission_data[field]).strip()
-                break
-            if "/" in field:
-                parts = field.split("/")
-                value = submission_data
-                for part in parts:
-                    if isinstance(value, dict) and part in value:
-                        value = value[part]
-                    else:
-                        value = None
-                        break
-                if value:
-                    district = str(value).strip()
+
+        if not district:
+            for field in district_fallbacks:
+                v = self._get_value_for_path(submission_data, cleaned_data, field)
+                if v:
+                    district = v
                     break
-        
+
+        # 3) Last resort: scan all keys for names ending in /province, _province, /district, _district
+        if not province or not district:
+            p_scan, d_scan = self._scan_keys_for_province_district(submission_data, cleaned_data)
+            if not province and p_scan:
+                province = p_scan
+            if not district and d_scan:
+                district = d_scan
+
         return province, district
+
+    def _scan_keys_for_province_district(
+        self, submission_data: dict[str, Any], cleaned_data: dict[str, Any]
+    ) -> tuple[Optional[str], Optional[str]]:
+        """
+        Scan all keys in submission_data and cleaned_data for province/district by pattern:
+        key in ('province','_province') or key.endswith('/province') or key.endswith('_province');
+        same for district. Skips keys containing 'gps' or 'resolved' (geocoding results).
+        """
+        def _is_province_key(k: str) -> bool:
+            if not k or "gps" in k.lower() or "resolved" in k.lower():
+                return False
+            k = k.strip()
+            return k in ("province", "_province") or k.endswith("/province") or k.endswith("_province")
+
+        def _is_district_key(k: str) -> bool:
+            if not k or "gps" in k.lower() or "resolved" in k.lower():
+                return False
+            k = k.strip()
+            return k in ("district", "_district") or k.endswith("/district") or k.endswith("_district")
+
+        def _to_str(v: Any) -> Optional[str]:
+            if v is None or v == "":
+                return None
+            if isinstance(v, str) and v.strip():
+                return str(v).strip()
+            if isinstance(v, (int, float)) and str(v).strip():
+                return str(v).strip()
+            return None
+
+        def _walk(d: Any, prefix: str = "") -> list[tuple[str, Any]]:
+            out: list[tuple[str, Any]] = []
+            if not isinstance(d, dict):
+                return out
+            for key, val in d.items():
+                if isinstance(key, str) and key.startswith("_") and key.lower() not in ("_province", "_district"):
+                    continue
+                p = f"{prefix}/{key}" if prefix else key
+                if isinstance(val, dict):
+                    ks = set(val.keys())
+                    if ks <= {"lat", "latitude", "lon", "lng", "longitude", "alt", "accuracy"} and any(
+                        x in ks for x in ("lat", "latitude")
+                    ) and any(x in ks for x in ("lon", "lng", "longitude")):
+                        out.append((p, val))
+                    else:
+                        out.extend(_walk(val, p))
+                else:
+                    out.append((p, val))
+            return out
+
+        effective = self._get_effective_submission_payload(submission_data) if submission_data else {}
+        pairs: list[tuple[str, Any]] = _walk(effective)
+        for k, v in (cleaned_data or {}).items():
+            if isinstance(k, str):
+                pairs.append((k, v))
+
+        province_val: Optional[str] = None
+        district_val: Optional[str] = None
+        for k, v in pairs:
+            s = _to_str(v)
+            if not s:
+                continue
+            if not province_val and _is_province_key(k):
+                province_val = s
+            if not district_val and _is_district_key(k):
+                district_val = s
+            if province_val and district_val:
+                break
+        return (province_val, district_val)
 
     def extract_form_place_name(self, submission_data: dict[str, Any], cleaned_data: dict[str, Any]) -> Optional[str]:
         """
@@ -665,7 +806,12 @@ class ETLPipeline:
         return (updated, len(subs))
 
     def _emit_progress_update(self, sync_log: SyncLog):
-        """Emit progress update via WebSocket (if available and enabled). No-op when ENABLE_WEBSOCKETS=0."""
+        """Update in-memory progress store (for SSE/polling/WS) and emit WebSocket if enabled."""
+        try:
+            import sync_progress_store as sps
+            sps.set(sync_log.id, sps.from_sync_log(sync_log))
+        except Exception:
+            pass
         if not _websockets_enabled():
             return
         try:
@@ -766,6 +912,7 @@ class ETLPipeline:
             sync_log.current_form_id = form.id
             sync_log.current_form_title = form.title
             self.db.commit()
+            self._emit_progress_update(sync_log)
 
             # Get submissions
             if sync_type == "full":
@@ -776,7 +923,17 @@ class ETLPipeline:
 
             total_submissions = len(submissions)
             sync_log.total_submissions = total_submissions
+            sync_log.current_submission_index = 0
             self.db.commit()
+
+            # Province/district: prefer DB-configured fields (FormFieldMapping) for this form; else auto-detect
+            mapping = self.db.query(FormFieldMapping).filter(FormFieldMapping.form_id == form.id).first()
+            p_db = (mapping.province_field or None) if mapping else None
+            d_db = (mapping.district_field or None) if mapping else None
+            p_detect, d_detect = detect_province_district_fields_for_form(form, (submissions or [])[:50])
+            detected_province_field = p_db or p_detect
+            detected_district_field = d_db or d_detect
+            choice_mapping = self.build_choice_mapping(form)
 
             records_added = 0
             records_updated = 0
@@ -817,9 +974,17 @@ class ETLPipeline:
                 cleaned_data = self.clean_submission_data(kobo_submission, form=form)
                 lat, lng, loc_name = self.extract_location(kobo_submission)
                 
-                # 1. Extract province/district from FORM DATA (user input)
-                province, district = self.extract_province_district_from_data(kobo_submission, cleaned_data)
-                
+                # 1. Extract province/district from FORM DATA (user input); use form-specific fields when detected
+                province, district = self.extract_province_district_from_data(
+                    kobo_submission,
+                    cleaned_data,
+                    province_field=detected_province_field,
+                    district_field=detected_district_field,
+                )
+                # Resolve choice codes to labels (e.g. p1 -> Kabul, d1 -> District 1) so location_name shows real names
+                province = self._resolve_choice_code(province, choice_mapping) or province
+                district = self._resolve_choice_code(district, choice_mapping) or district
+
                 # Store form-based values in cleaned_data
                 if province:
                     cleaned_data["province"] = province
@@ -897,11 +1062,15 @@ class ETLPipeline:
             sync_log.records_processed = len(submissions)
             sync_log.records_added = records_added
             sync_log.records_updated = records_updated
-            sync_log.status = "success"
-            sync_log.completed_at = datetime.utcnow()
-            sync_log.progress_percentage = 100.0
+            # Only mark sync complete when this is a single-form sync. In sync_all_forms we reuse
+            # this SyncLog for each form; setting status=success here would make the stream think
+            # the whole sync is done after form 1 and never show form 2, 3, etc.
+            if sync_log.total_forms <= 1:
+                sync_log.status = "success"
+                sync_log.completed_at = datetime.utcnow()
+                sync_log.progress_percentage = 100.0
             self.db.commit()
-            
+
             # Final progress update
             self._emit_progress_update(sync_log)
 
@@ -939,6 +1108,7 @@ class ETLPipeline:
             sync_log.error_message = str(e)
             sync_log.completed_at = datetime.utcnow()
             self.db.commit()
+            self._emit_progress_update(sync_log)
             raise
 
     def compute_indicators(self, form_id: int) -> list[Indicator]:
@@ -1076,13 +1246,17 @@ class ETLPipeline:
         sync_logs = []
 
         for form_index, kobo_form in enumerate(survey_forms):
-            # Update parent sync log
+            # Update parent sync log so progress/stream shows "Form X of N: <title>"
             parent_sync_log.current_form_index = form_index
+            parent_sync_log.current_form_title = (
+                kobo_form.get("name") or kobo_form.get("title")
+                or str(kobo_form.get("uid") or kobo_form.get("id") or (form_index + 1))
+            )
             if total_forms > 0:
                 parent_sync_log.progress_percentage = (form_index / total_forms) * 100
             self.db.commit()
             self._emit_progress_update(parent_sync_log)
-            
+
             # KoboToolbox API v2 uses 'uid' for form identifier
             form_id = kobo_form.get("uid") or kobo_form.get("formid") or kobo_form.get("id")
             if form_id:
@@ -1092,9 +1266,10 @@ class ETLPipeline:
                     sync_logs.append(sync_log)
                 except Exception as e:
                     logger.error(f"Failed to sync form {form_id}: {e}")
-                    # Update parent log with error info
+                    # Update parent log with error info (store gets it via _emit_progress_update)
                     parent_sync_log.error_message = f"Error syncing form {form_id}: {str(e)}"
                     self.db.commit()
+                    self._emit_progress_update(parent_sync_log)
 
         # Mark parent sync log as complete
         parent_sync_log.status = "success"

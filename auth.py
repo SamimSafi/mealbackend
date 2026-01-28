@@ -9,7 +9,7 @@ from jose import JWTError, jwt
 from sqlalchemy.orm import Session
 
 from config import settings
-from database import get_db
+from database import get_db, SessionLocal
 from models import User
 
 
@@ -135,6 +135,47 @@ def get_current_active_user(current_user: User = Depends(get_current_user_pa)) -
     if not current_user.is_active:
         raise HTTPException(status_code=400, detail="Inactive user")
     return current_user
+
+
+def get_current_user_for_sse(request: Request) -> User:
+    """Auth for SSE/polling endpoints: accept ?token= (EventSource cannot set headers) or Authorization: Bearer.
+    Uses a short-lived DB session so we do not hold a connection for the whole SSE stream (avoids pool
+    exhaustion and proxy timeouts when hosted)."""
+    token = request.query_params.get("token")
+    if not token:
+        auth_header = (
+            request.headers.get("Authorization")
+            or request.headers.get("authorization")
+            or request.headers.get("HTTP_AUTHORIZATION")
+        )
+        if not auth_header or not auth_header.startswith("Bearer "):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Not authenticated",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        token = auth_header[7:]
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        username = payload.get("sub")
+        if not username:
+            raise HTTPException(status_code=401, detail="Invalid token")
+        db = SessionLocal()
+        try:
+            user = db.query(User).filter(User.username == username).first()
+            if not user:
+                user = db.query(User).filter(User.username == "admin").first()
+            if not user:
+                raise HTTPException(status_code=404, detail="User not found")
+            if not user.is_active:
+                raise HTTPException(status_code=400, detail="Inactive user")
+            return user
+        finally:
+            db.close()
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token expired")
+    except jwt.JWTError:
+        raise HTTPException(status_code=401, detail="Invalid token")
 
 
 def require_role(required_role: str):

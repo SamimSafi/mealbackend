@@ -322,7 +322,10 @@ class FormFieldMapping(Base):
     gender_field = Column(String(255), nullable=True)
     household_size_field = Column(String(255), nullable=True)
     location_field = Column(String(255), nullable=True)
-    
+    # Province/District: which form fields (in submission_data/cleaned_data) to use for Submission.province/district
+    province_field = Column(String(255), nullable=True)  # e.g. "info/province", "info/wilayat", "location/province_name"
+    district_field = Column(String(255), nullable=True)  # e.g. "info/district", "info/wuleswali", "location/district_name"
+
     # Custom mappings for Child Protection / Education
     custom_mappings = Column(JSON, nullable=True)  # e.g., {"grade_level": "education/grade", "protection_status": "..."}
     

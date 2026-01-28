@@ -1,9 +1,102 @@
-"""Dynamic field detection for forms - auto-detects gender and province fields."""
+"""Dynamic field detection for forms - auto-detects gender and province/district fields."""
 
 import json
-from typing import Optional, Dict, List
+from typing import Optional, Dict, List, Tuple
 from models import Form as FormModel, Submission
 from sqlalchemy.orm import Session
+
+
+def detect_province_district_fields_for_form(
+    form: FormModel,
+    raw_submission_samples: Optional[List[dict]] = None,
+) -> Tuple[Optional[str], Optional[str]]:
+    """
+    Auto-detect province and district field names for a form from its schema and,
+    if needed, from raw submission keys. Each form can use different column names
+    (e.g. wilayat, info/province, location/province_name). Returns (province_field, district_field)
+    as schema-style paths (e.g. "info/province"). Used during ETL sync so province/district
+    are correctly filled per form.
+    """
+    province_keywords = [
+        "province", "wilayat", "state", "region", "admin1", "adm1",
+        "governorate", "ولایت", "صوبہ", "province_name", "name_province",
+    ]
+    district_keywords = [
+        "district", "woleswali", "wuluswali", "wuleswali", "county", "admin2", "adm2",
+        "municipality", "ولسوالی", "ضلع", "district_name", "name_district",
+    ]
+
+    schema = _parse_schema(form.form_schema) if form else None
+    survey = (schema or {}).get("content", {}).get("survey", [])
+
+    province_field: Optional[str] = None
+    district_field: Optional[str] = None
+
+    # 1) Prefer form schema: match by field 'name' or 'label'
+    for field in survey:
+        name = field.get("name") or ""
+        label = field.get("label")
+        if isinstance(label, list):
+            label = label[0] if label else ""
+        label = (label or "").strip()
+        name_lower = name.lower()
+        label_lower = label.lower()
+        name_last = name_lower.split("/")[-1] if name else ""
+
+        if not province_field:
+            if any(k in name_lower or k in label_lower or k in name_last for k in province_keywords):
+                if "district" not in name_lower and "district" not in label_lower:
+                    province_field = name
+
+        if not district_field:
+            if any(k in name_lower or k in label_lower or k in name_last for k in district_keywords):
+                if "province" not in name_lower and "province" not in label_lower:
+                    district_field = name
+
+    # 2) Fallback: scan keys in raw submission data (paths like info/province)
+    if (province_field is None or district_field is None) and raw_submission_samples:
+        all_paths: set[str] = set()
+        for raw in raw_submission_samples:
+            if not isinstance(raw, dict):
+                continue
+            body = raw.get("body")
+            effective = {**(body or {}), **raw} if isinstance(body, dict) else raw
+            all_paths |= _get_leaf_paths_from_dict(effective)
+
+        for p in sorted(all_paths):
+            pl = p.lower()
+            last = p.split("/")[-1].lower() if "/" in p else pl
+            if province_field is None and any(k in pl or k in last for k in province_keywords):
+                if "district" not in pl:
+                    province_field = p
+            if district_field is None and any(k in pl or k in last for k in district_keywords):
+                if "province" not in pl:
+                    district_field = p
+
+    return (province_field, district_field)
+
+
+def _get_leaf_paths_from_dict(d: dict, prefix: str = "") -> set[str]:
+    """Recursively collect leaf paths (e.g. info/province) from nested dict. Skips keys starting with '_'."""
+    out: set[str] = set()
+    if not isinstance(d, dict):
+        return out
+    for k, v in d.items():
+        if k.startswith("_") and k.lower() not in ("_province", "_district"):
+            continue
+        p = f"{prefix}/{k}" if prefix else k
+        if isinstance(v, dict):
+            # Skip geopoint-like objects
+            keys = set(v.keys())
+            if keys <= {"lat", "latitude", "lon", "lng", "longitude", "alt", "accuracy"} and any(
+                x in keys for x in ("lat", "latitude")
+            ) and any(x in keys for x in ("lon", "lng", "longitude")):
+                out.add(p)
+            else:
+                out |= _get_leaf_paths_from_dict(v, p)
+        else:
+            out.add(p)
+    return out
 
 
 def detect_province_field(form: FormModel, submissions: List[Submission]) -> Optional[str]:
