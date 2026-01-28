@@ -15,6 +15,15 @@ from models import Form, Indicator, Submission, SyncLog, RawSubmission
 logger = logging.getLogger(__name__)
 
 
+def _websockets_enabled() -> bool:
+    """True if ENABLE_WEBSOCKETS is 1/true/yes. Disable on PythonAnywhere free."""
+    try:
+        from config import settings as app_settings
+        return getattr(app_settings, "ENABLE_WEBSOCKETS", "1").lower() in ("1", "true", "yes")
+    except Exception:
+        return True  # default on if config unavailable
+
+
 class ETLPipeline:
     """ETL pipeline for processing Kobo form data."""
 
@@ -656,7 +665,9 @@ class ETLPipeline:
         return (updated, len(subs))
 
     def _emit_progress_update(self, sync_log: SyncLog):
-        """Emit progress update via WebSocket (if available)."""
+        """Emit progress update via WebSocket (if available and enabled). No-op when ENABLE_WEBSOCKETS=0."""
+        if not _websockets_enabled():
+            return
         try:
             from websocket_manager import manager
             import asyncio
@@ -897,32 +908,28 @@ class ETLPipeline:
             # Compute indicators after syncing
             self.compute_indicators(form.id)
             
-            # Emit WebSocket event for real-time updates
-            try:
-                from websocket_manager import manager
-                import asyncio
-                
-                # Create async task to broadcast update
-                message = {
-                    "type": "form_updated",
-                    "form_id": form.id,
-                    "records_added": records_added,
-                    "records_updated": records_updated,
-                    "timestamp": datetime.utcnow().isoformat(),
-                }
-                
-                # Run in event loop if available
+            # Emit WebSocket event for real-time updates (no-op when ENABLE_WEBSOCKETS=0)
+            if _websockets_enabled():
                 try:
-                    loop = asyncio.get_event_loop()
-                    if loop.is_running():
-                        asyncio.create_task(manager.broadcast_to_form(form.id, message))
-                    else:
-                        loop.run_until_complete(manager.broadcast_to_form(form.id, message))
-                except RuntimeError:
-                    # No event loop, create new one
-                    asyncio.run(manager.broadcast_to_form(form.id, message))
-            except Exception as e:
-                logger.warning(f"Failed to emit WebSocket event: {e}")
+                    from websocket_manager import manager
+                    import asyncio
+                    message = {
+                        "type": "form_updated",
+                        "form_id": form.id,
+                        "records_added": records_added,
+                        "records_updated": records_updated,
+                        "timestamp": datetime.utcnow().isoformat(),
+                    }
+                    try:
+                        loop = asyncio.get_event_loop()
+                        if loop.is_running():
+                            asyncio.create_task(manager.broadcast_to_form(form.id, message))
+                        else:
+                            loop.run_until_complete(manager.broadcast_to_form(form.id, message))
+                    except RuntimeError:
+                        asyncio.run(manager.broadcast_to_form(form.id, message))
+                except Exception as e:
+                    logger.warning(f"Failed to emit WebSocket event: {e}")
 
             return sync_log
 

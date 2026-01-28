@@ -41,7 +41,10 @@ MYSQL_HOST=samimsafi.mysql.pythonanywhere-services.com
 MYSQL_USER=samimsafi
 MYSQL_PASSWORD=Meal@123
 MYSQL_DATABASE=samimsafi$kobo_dashboard
+ENABLE_WEBSOCKETS=0
 ```
+
+**`ENABLE_WEBSOCKETS=0`** — PythonAnywhere’s **free** hosting does not support WebSockets. Set this so the app does not register `/ws/forms/` and `/ws/sync/` and uses HTTP polling/SSE instead: `GET /api/sync/{sync_id}/progress` or `GET /api/sync/{sync_id}/stream`.
 
 ### 3. Install MySQL Driver
 
@@ -83,6 +86,7 @@ No manual migrations needed! Just update models and restart the app.
 | MYSQL_USER | (not used) | samimsafi |
 | MYSQL_PASSWORD | (not used) | Meal@123 |
 | MYSQL_DATABASE | (not used) | samimsafi$kobo_dashboard |
+| ENABLE_WEBSOCKETS | 1 (default) | **0** (free tier has no WebSockets) |
 
 ## Troubleshooting
 
@@ -107,3 +111,7 @@ pip install pymysql
 - Check app logs: Web → Error log
 - Ensure ENVIRONMENT=production in variables
 - Manually trigger migration by reloading web app
+
+### 502 / WebSocket or /ws/ Errors on Free Tier
+- Free hosting does not support WebSockets. Set **ENABLE_WEBSOCKETS=0** in your app’s environment variables.
+- Sync progress will use **GET /api/sync/{sync_id}/progress** (polling) or **GET /api/sync/{sync_id}/stream** (SSE) instead.

@@ -64,6 +64,9 @@ class Settings(BaseSettings):
     # Webhook
     WEBHOOK_SECRET: str = ""
 
+    # WebSockets (set to 0 on PythonAnywhere free; use polling /api/sync/{id}/progress or /api/sync/{id}/stream)
+    ENABLE_WEBSOCKETS: str = "0"
+
     @computed_field  # type: ignore[misc]
     @property
     def CORS_ORIGINS(self) -> list[str]:

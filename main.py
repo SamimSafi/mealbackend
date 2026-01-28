@@ -115,7 +115,6 @@ from fastapi.responses import StreamingResponse
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-from websocket_manager import manager
 from discover import discover_router
 from analysis import router as analysis_router
 from report_service import ReportService
@@ -4350,81 +4349,77 @@ def get_form_grouped_data(
 
 
 # ============================================================================
-# WebSocket Endpoint
+# WebSocket Endpoints (disabled when ENABLE_WEBSOCKETS=0, e.g. PythonAnywhere free)
+# Use GET /api/sync/{sync_id}/progress (polling) or /api/sync/{sync_id}/stream (SSE) instead.
 # ============================================================================
 
-@app.websocket("/ws/forms/{form_id}")
-async def websocket_form_updates(websocket: WebSocket, form_id: int):
-    """WebSocket endpoint for real-time form updates."""
-    # Verify form exists
-    db = next(get_db())
-    try:
-        form = db.query(FormModel).filter(FormModel.id == form_id).first()
-        if not form:
-            await websocket.close(code=1008, reason="Form not found")
-            return
-    finally:
-        db.close()
-    
-    await manager.connect(websocket, form_id)
-    try:
-        while True:
-            # Keep connection alive and wait for messages
-            data = await websocket.receive_text()
-            # Echo back or handle client messages
-            await websocket.send_json({"type": "pong", "form_id": form_id})
-    except WebSocketDisconnect:
-        manager.disconnect(websocket, form_id)
-    except Exception as e:
-        logger.error(f"WebSocket error: {e}")
-        manager.disconnect(websocket, form_id)
+def _websockets_enabled() -> bool:
+    return getattr(settings, "ENABLE_WEBSOCKETS", "1").lower() in ("1", "true", "yes")
 
+if _websockets_enabled():
+    from websocket_manager import manager
 
-@app.websocket("/ws/sync/{sync_id}")
-async def websocket_sync_progress(websocket: WebSocket, sync_id: int):
-    """WebSocket endpoint for real-time sync progress updates."""
-    # Verify sync exists
-    db = next(get_db())
-    try:
-        sync_log = db.query(SyncLog).filter(SyncLog.id == sync_id).first()
-        if not sync_log:
-            await websocket.close(code=1008, reason="Sync not found")
-            return
-        
-        # Send initial progress state
-        progress = SyncProgressResponse(
-            sync_id=sync_log.id,
-            status=sync_log.status,
-            current_form_index=sync_log.current_form_index,
-            total_forms=sync_log.total_forms,
-            current_form_id=sync_log.current_form_id,
-            current_form_title=sync_log.current_form_title,
-            current_submission_index=sync_log.current_submission_index,
-            total_submissions=sync_log.total_submissions,
-            progress_percentage=sync_log.progress_percentage,
-            records_added=sync_log.records_added,
-            records_updated=sync_log.records_updated,
-            records_processed=sync_log.records_processed,
-            started_at=sync_log.started_at.isoformat() if sync_log.started_at else None,
-            completed_at=sync_log.completed_at.isoformat() if sync_log.completed_at else None,
-            error_message=sync_log.error_message,
-        )
-        await websocket.send_json(progress.model_dump())
-    finally:
-        db.close()
-    
-    await manager.connect_sync(websocket, sync_id)
-    try:
-        while True:
-            # Keep connection alive - progress updates are sent from ETL pipeline
-            data = await websocket.receive_text()
-            # Echo back
-            await websocket.send_json({"type": "pong", "sync_id": sync_id})
-    except WebSocketDisconnect:
-        manager.disconnect_sync(websocket, sync_id)
-    except Exception as e:
-        logger.error(f"Sync WebSocket error: {e}")
-        manager.disconnect_sync(websocket, sync_id)
+    @app.websocket("/ws/forms/{form_id}")
+    async def websocket_form_updates(websocket: WebSocket, form_id: int):
+        """WebSocket endpoint for real-time form updates."""
+        db = next(get_db())
+        try:
+            form = db.query(FormModel).filter(FormModel.id == form_id).first()
+            if not form:
+                await websocket.close(code=1008, reason="Form not found")
+                return
+        finally:
+            db.close()
+        await manager.connect(websocket, form_id)
+        try:
+            while True:
+                data = await websocket.receive_text()
+                await websocket.send_json({"type": "pong", "form_id": form_id})
+        except WebSocketDisconnect:
+            manager.disconnect(websocket, form_id)
+        except Exception as e:
+            logger.error(f"WebSocket error: {e}")
+            manager.disconnect(websocket, form_id)
+
+    @app.websocket("/ws/sync/{sync_id}")
+    async def websocket_sync_progress(websocket: WebSocket, sync_id: int):
+        """WebSocket endpoint for real-time sync progress updates."""
+        db = next(get_db())
+        try:
+            sync_log = db.query(SyncLog).filter(SyncLog.id == sync_id).first()
+            if not sync_log:
+                await websocket.close(code=1008, reason="Sync not found")
+                return
+            progress = SyncProgressResponse(
+                sync_id=sync_log.id,
+                status=sync_log.status,
+                current_form_index=sync_log.current_form_index,
+                total_forms=sync_log.total_forms,
+                current_form_id=sync_log.current_form_id,
+                current_form_title=sync_log.current_form_title,
+                current_submission_index=sync_log.current_submission_index,
+                total_submissions=sync_log.total_submissions,
+                progress_percentage=sync_log.progress_percentage,
+                records_added=sync_log.records_added,
+                records_updated=sync_log.records_updated,
+                records_processed=sync_log.records_processed,
+                started_at=sync_log.started_at.isoformat() if sync_log.started_at else None,
+                completed_at=sync_log.completed_at.isoformat() if sync_log.completed_at else None,
+                error_message=sync_log.error_message,
+            )
+            await websocket.send_json(progress.model_dump())
+        finally:
+            db.close()
+        await manager.connect_sync(websocket, sync_id)
+        try:
+            while True:
+                data = await websocket.receive_text()
+                await websocket.send_json({"type": "pong", "sync_id": sync_id})
+        except WebSocketDisconnect:
+            manager.disconnect_sync(websocket, sync_id)
+        except Exception as e:
+            logger.error(f"Sync WebSocket error: {e}")
+            manager.disconnect_sync(websocket, sync_id)
 
 
 @app.get("/api/sync/{sync_id}/progress", response_model=SyncProgressResponse)
