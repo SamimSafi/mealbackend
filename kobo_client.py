@@ -27,11 +27,11 @@ class KoboClient:
             "Content-Type": "application/json",
         }
 
-    def _make_request(self, method: str, endpoint: str, **kwargs) -> dict[str, Any]:
-        """Make an API request."""
+    def _make_request(self, method: str, endpoint: str, timeout: int = 60, **kwargs) -> dict[str, Any]:
+        """Make an API request. Uses timeout=60 by default to avoid indefinite hang (e.g. sync all on PythonAnywhere)."""
         url = f"{self.api_url.rstrip('/')}/{endpoint.lstrip('/')}"
         try:
-            response = requests.request(method, url, headers=self.headers, **kwargs)
+            response = requests.request(method, url, headers=self.headers, timeout=timeout, **kwargs)
             response.raise_for_status()
             return response.json()
         except requests.exceptions.RequestException as e:
@@ -39,10 +39,12 @@ class KoboClient:
             raise
 
     def get_forms(self) -> list[dict[str, Any]]:
-        """Get all forms (assets in KoboToolbox API)."""
+        """Get all forms (assets in KoboToolbox API). Raises on network/timeout so sync can set error."""
         try:
             response = self._make_request("GET", "/assets")
             return response.get("results", [])
+        except requests.exceptions.RequestException:
+            raise
         except Exception as e:
             logger.error(f"Failed to fetch forms: {e}")
             return []

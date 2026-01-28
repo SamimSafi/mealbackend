@@ -1042,6 +1042,10 @@ class ETLPipeline:
             sync_type: "full" or "incremental"
             parent_sync_log: Optional parent SyncLog to track overall progress
         """
+        if parent_sync_log is not None:
+            parent_sync_log.current_form_title = "Fetching form list from Kobo..."
+            self.db.commit()
+
         forms = self.kobo_client.get_forms()
         
         # Filter to only survey forms

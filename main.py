@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 # Avoid running initialization at import time. Initialization is handled
 # in the FastAPI `lifespan` context manager or when running as a script.
     
-from fastapi import FastAPI, HTTPException, Depends, status, WebSocket, WebSocketDisconnect, Request, UploadFile, File, Form, BackgroundTasks
+from fastapi import FastAPI, HTTPException, Depends, status, WebSocket, WebSocketDisconnect, Request, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
@@ -26,7 +26,7 @@ from sqlalchemy import func, desc
 from jose import jwt
 
 from config import settings
-from database import get_db, init_db, migrate_db
+from database import get_db, init_db, migrate_db, SessionLocal
 from models import (
     User, Form as FormModel, Submission, Indicator, SyncLog, UserPermission, UserFormAccess,
     RawSubmission, Organization, Branding, KPIDefinition, KPIValue, ReportCache, FormFieldMapping, Document
@@ -2880,6 +2880,14 @@ def run_sync_in_background(sync_log_id: int, form_id: Optional[int], sync_type: 
     from database import SessionLocal
     db = SessionLocal()
     try:
+        # Mark stale "running" syncs as timed out (e.g. worker killed when other forms take too long on PythonAnywhere)
+        threshold = datetime.utcnow() - timedelta(minutes=15)
+        for s in db.query(SyncLog).filter(SyncLog.status == "running", SyncLog.started_at < threshold):
+            s.status = "error"
+            s.error_message = "Sync timed out or was interrupted"
+            s.completed_at = datetime.utcnow()
+        db.commit()
+
         etl = ETLPipeline(db)
         sync_log = db.query(SyncLog).filter(SyncLog.id == sync_log_id).first()
         
@@ -2927,11 +2935,12 @@ def run_sync_in_background(sync_log_id: int, form_id: Optional[int], sync_type: 
 @app.post("/api/sync", response_model=SyncLogResponse)
 def sync_forms(
     sync_request: SyncRequest,
-    background_tasks: BackgroundTasks,
     current_user: User = Depends(require_role("admin")),
     db: Session = Depends(get_db),
 ):
-    """Sync forms from Kobo (admin only). Returns immediately and runs sync in background."""
+    """Sync forms from Kobo (admin only). Returns immediately and runs sync in a daemon thread.
+    Using a thread (not BackgroundTasks) avoids blocking the single worker on PythonAnywhere:
+    when form 1's sync runs, the worker stays free so form 2's POST /api/sync can be handled."""
     try:
         # Create sync log entry
         sync_log = SyncLog(
@@ -2953,13 +2962,12 @@ def sync_forms(
         
         db.commit()
         
-        # Run sync in background
-        background_tasks.add_task(
-            run_sync_in_background,
-            sync_log.id,
-            form_id,
-            sync_request.sync_type
-        )
+        # Run sync in a daemon thread so the worker is not blocked (fixes form 2+ POST timing out when form 1 sync is still running)
+        threading.Thread(
+            target=run_sync_in_background,
+            args=(sync_log.id, form_id, sync_request.sync_type),
+            daemon=True,
+        ).start()
         
         return SyncLogResponse.model_validate(sync_log)
     except HTTPException:
@@ -4471,20 +4479,18 @@ def get_sync_progress(
 async def stream_sync_progress(
     sync_id: int,
     current_user: User = Depends(get_current_active_user),
-    db: Session = Depends(get_db),
 ):
-    """Stream sync progress via Server-Sent Events (SSE)."""
+    """Stream sync progress via Server-Sent Events (SSE). Uses a fresh DB session per tick to avoid long-lived connection issues when WebSockets are disabled (e.g. PythonAnywhere free)."""
     async def event_generator():
         last_progress = None
         while True:
+            db = SessionLocal()
             try:
-                # Get current progress from database
                 sync_log = db.query(SyncLog).filter(SyncLog.id == sync_id).first()
                 if not sync_log:
                     yield f"data: {json.dumps({'error': 'Sync not found'})}\n\n"
                     break
-                
-                # Build progress response
+
                 message = None
                 if sync_log.status == "running":
                     if sync_log.total_forms > 1:
@@ -4497,7 +4503,7 @@ async def stream_sync_progress(
                     message = "Sync completed successfully"
                 elif sync_log.status == "error":
                     message = f"Sync failed: {sync_log.error_message}"
-                
+
                 progress = {
                     "sync_id": sync_log.id,
                     "status": sync_log.status,
@@ -4516,23 +4522,21 @@ async def stream_sync_progress(
                     "error_message": sync_log.error_message,
                     "message": message,
                 }
-                
-                # Only send if progress changed
+
                 if progress != last_progress:
                     yield f"data: {json.dumps(progress)}\n\n"
                     last_progress = progress
-                
-                # Stop if sync is complete
+
                 if sync_log.status in ["success", "error"]:
                     break
-                
-                # Wait before next update
-                await asyncio.sleep(1)  # Update every second
-                
             except Exception as e:
                 logger.error(f"SSE stream error: {e}")
                 yield f"data: {json.dumps({'error': str(e)})}\n\n"
                 break
+            finally:
+                db.close()
+
+            await asyncio.sleep(1)
     
     return StreamingResponse(
         event_generator(),
